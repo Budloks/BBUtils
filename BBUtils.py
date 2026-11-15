@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 17, 0),
+    "version": (1, 18, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -30,9 +30,13 @@ from mathutils import Matrix, Quaternion, Vector
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _redraw(context, area_types):
-    for area in context.screen.areas:
-        if area.type in area_types:
-            area.tag_redraw()
+    screen = getattr(context, "screen", None)
+    screens = [screen] if screen else [w.screen for w in
+                                       bpy.context.window_manager.windows]
+    for scr in screens:
+        for area in scr.areas:
+            if area.type in area_types:
+                area.tag_redraw()
 
 
 def _action_owner_map():
@@ -1865,6 +1869,7 @@ _ez_state = {
     "launch": None,     # frame index of the one-shot launch, None = idle
     "sampling": False,  # suspend auto-hide while evaluating
     "hide_pending": False,
+    "auto_pending": None,   # 'light' / 'full' refresh queued by a rig edit
 }
 
 
@@ -2302,12 +2307,82 @@ def _ez_draw_callback():
     gpu.state.depth_test_set('NONE')
 
 
+_EZ_AUTO_DELAY = 0.12      # seconds - coalesces a burst of edits into one refresh
+
+
+def _ez_live_bone_matrix(context, p):
+    """World matrix of the bone as it is posed RIGHT NOW (unkeyed edits too)."""
+    dg = context.evaluated_depsgraph_get()
+    ae = p.armature.evaluated_get(dg)
+    return (ae.matrix_world @ ae.pose.bones[p.bone_name].matrix).copy()
+
+
+def _ez_auto_timer():
+    kind, _ez_state["auto_pending"] = _ez_state["auto_pending"], None
+    if kind is None or _ez_state["handle"] is None or _ez_state["init"] is None:
+        return None
+    wm = bpy.context.window_manager
+    window = wm.windows[0] if wm and len(wm.windows) else None
+    if window is None:
+        return None
+    try:
+        with bpy.context.temp_override(window=window, screen=window.screen):
+            ctx = bpy.context
+            p = ctx.scene.bbutils_ezphyzi_props
+            if not _ez_valid(p):
+                return None
+            if kind == 'full':
+                _ez_refresh(ctx, resample=True)
+            else:
+                # bone moved by hand: read the live pose WITHOUT changing the
+                # frame - a frame change would wipe unkeyed edits
+                f, cur = p.release_frame, ctx.scene.frame_current
+                if cur in (f, f - 1):
+                    key = "m_rel" if cur == f else "m_prev"
+                    _ez_state["init"][key] = _ez_live_bone_matrix(ctx, p)
+                    _ez_refresh(ctx, resample=False)
+    except Exception as exc:
+        print(f"BBUtils EzPhyzi auto-refresh: {exc}")
+    return None
+
+
+@persistent
+def _ez_on_depsgraph(scene, depsgraph):
+    """Rig edited -> queue a preview refresh (never refresh inside the handler:
+    the depsgraph is still busy here)."""
+    if (_ez_state["handle"] is None or _ez_state["sampling"]
+            or _ez_state["launch"] is not None):
+        return
+    p = scene.bbutils_ezphyzi_props
+    if not _ez_valid(p):
+        return
+    arm = p.armature
+    ad = arm.animation_data
+    action = ad.action if ad else None
+    kind = None
+    for upd in depsgraph.updates:
+        idd = getattr(upd.id, "original", upd.id)
+        if action is not None and idd == action:
+            kind = 'full'               # keys changed: resample from animation
+            break
+        if idd == arm and (upd.is_updated_transform or upd.is_updated_geometry):
+            kind = 'light'              # pose moved by hand
+    if kind is None:
+        return
+    if _ez_state["auto_pending"] != 'full':
+        _ez_state["auto_pending"] = kind
+    if not bpy.app.timers.is_registered(_ez_auto_timer):
+        bpy.app.timers.register(_ez_auto_timer, first_interval=_EZ_AUTO_DELAY)
+
+
 def _ez_preview_on(context):
     if _ez_state["handle"] is None:
         _ez_state["handle"] = bpy.types.SpaceView3D.draw_handler_add(
             _ez_draw_callback, (), 'WINDOW', 'POST_VIEW')
     if _ez_on_frame_change not in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.append(_ez_on_frame_change)
+    if _ez_on_depsgraph not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_ez_on_depsgraph)
     _ez_refresh(context, resample=True)
 
 
@@ -2317,6 +2392,11 @@ def _ez_preview_off(context=None):
         bpy.types.SpaceView3D.draw_handler_remove(_ez_state["handle"], 'WINDOW')
     if _ez_on_frame_change in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_ez_on_frame_change)
+    if _ez_on_depsgraph in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_ez_on_depsgraph)
+    if bpy.app.timers.is_registered(_ez_auto_timer):
+        bpy.app.timers.unregister(_ez_auto_timer)
+    _ez_state["auto_pending"] = None
     _ez_unhide_real()
     _ez_state.update(handle=None, init=None, frames=None, batches=None,
                      ghosts={}, solids={})

@@ -70,6 +70,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 
 - **Start velocity and spin come from your animation.** EzPhyzi measures how the bone moves between the frame before release and the release frame. A flick of the hand becomes the throw.
 - **The simulation is cheap,** so the overlay updates live while you drag a slider.
+- **The preview follows the rig.** Move the bone on the start frame, or edit its keys, and the throw re-simulates by itself.
 - **The bake keys the bone directly** in pose space, one key per frame. Euler and quaternion rotations are kept continuous, so there are no 360° flips, and the bone's constraints are keyed to influence 0 from the release frame.
 
 ### Preview

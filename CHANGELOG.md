@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.18.0
+- The EzPhyzi preview follows rig edits live. Moving the bone by hand on the start
+  frame (or the frame before it) updates the throw from the live pose without
+  changing the frame, so unkeyed edits survive. Changing keys (auto-key, Dope Sheet,
+  Graph Editor) re-samples the animation.
+
 ## 1.17.0
 - A **Start Frame** field sits right under **EzPhyzi It**, with a button that sets it
   to the current frame. Changing it re-simulates the preview at once and turns the
