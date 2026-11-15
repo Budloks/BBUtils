@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 21, 0),
+    "version": (1, 22, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -12,7 +12,6 @@ import bpy
 import bmesh
 import gpu
 import math
-import time
 import os
 import zlib
 from pathlib import Path
@@ -1859,7 +1858,6 @@ _ez_state = {
     "batches": None,    # cached static GPU batches
     "ghosts": {},       # frame index -> wire ghost batch
     "solids": {},       # frame index -> shaded solid ghost batch
-    "launch": None,     # frame index of the one-shot launch, None = idle
     "sampling": False,  # True while _ez_sample changes frames
     "auto_pending": None,   # 'light' / 'full' refresh queued by a rig edit
 }
@@ -2134,10 +2132,14 @@ def _ez_solid_batch(shader, idx):
     return cache[idx]
 
 
+def _ez_is_playing():
+    """True while the timeline animation is playing in any window."""
+    wm = bpy.context.window_manager
+    return bool(wm) and any(w.screen.is_animation_playing for w in wm.windows)
+
+
 def _ez_current_index(p, scene):
-    """Simulation frame to show: the launch, or the timeline position."""
-    if _ez_state["launch"] is not None:
-        return _ez_state["launch"]
+    """Simulation frame shown on the current timeline frame."""
     return scene.frame_current - p.release_frame
 
 
@@ -2184,7 +2186,7 @@ def _ez_draw_callback():
     b = _ez_state["batches"]
     last = len(frames) - 1
     now = _ez_current_index(p, scene)
-    launching = _ez_state["launch"] is not None
+    playing = _ez_is_playing()
 
     # solid ghost on the current frame - depth tested, so hands/gun occlude it
     if 0 <= now <= last:
@@ -2216,7 +2218,7 @@ def _ez_draw_callback():
         batch.draw(line_sh)
 
     draw_lines(b["path"], _EZ_COL_PATH, 2.5)
-    if not launching:                       # keep the launch view clean
+    if not playing:                         # keep the playback view clean
         draw_lines(b["ticks"], _EZ_COL_TICK, 1.5)
         for idx in sorted(set(range(0, last + 1, p.ghost_step)) | {last}):
             draw_lines(_ez_ghost_batch(line_sh, idx), _EZ_COL_GHOST, 1.0)
@@ -2224,7 +2226,7 @@ def _ez_draw_callback():
         draw_lines(_ez_ghost_batch(line_sh, now), _EZ_COL_NOW, 1.0)
 
     point_sh.bind()
-    if not launching:
+    if not playing:
         point_sh.uniform_float("color", _EZ_COL_PATH)
         gpu.state.point_size_set(5.0)
         b["dots"].draw(point_sh)
@@ -2287,7 +2289,7 @@ def _ez_on_depsgraph(scene, depsgraph):
     """Rig edited -> queue a preview refresh (never refresh inside the handler:
     the depsgraph is still busy here)."""
     if (_ez_state["handle"] is None or _ez_state["sampling"]
-            or _ez_state["launch"] is not None):
+            or _ez_is_playing()):
         return
     p = scene.bbutils_ezphyzi_props
     if not _ez_valid(p):
@@ -2321,7 +2323,6 @@ def _ez_preview_on(context):
 
 
 def _ez_preview_off(context=None):
-    _ez_state["launch"] = None
     if _ez_state["handle"] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_ez_state["handle"], 'WINDOW')
     if _ez_on_depsgraph in bpy.app.handlers.depsgraph_update_post:
@@ -2385,65 +2386,6 @@ class BBUTILS_OT_ezphyzi_toggle_preview(Operator):
         else:
             _ez_preview_on(context)
         return {'FINISHED'}
-
-
-class BBUTILS_OT_ezphyzi_play(Operator):
-    """Launch the object once along the simulated path in real time, like a
-    particle. The timeline is not touched. Click again to relaunch, Esc to stop"""
-    bl_idname = "bbutils.ezphyzi_play"
-    bl_label = "Launch Preview"
-
-    _instance = None        # running launch, so a second click restarts it
-
-    @classmethod
-    def poll(cls, context):
-        return _ez_valid(context.scene.bbutils_ezphyzi_props)
-
-    def invoke(self, context, event):
-        if _ez_state["handle"] is None:
-            _ez_preview_on(context)
-        elif _ez_state["init"] is None:
-            _ez_refresh(context, resample=True)
-        if not _ez_state["frames"]:
-            return {'CANCELLED'}
-
-        running = BBUTILS_OT_ezphyzi_play._instance
-        if running is not None:             # restart the running launch
-            running._t0 = time.perf_counter()
-            _ez_state["launch"] = 0
-            return {'CANCELLED'}
-
-        self._t0 = time.perf_counter()
-        self._fps = _ez_fps(context.scene)
-        _ez_state["launch"] = 0
-        wm = context.window_manager
-        self._timer = wm.event_timer_add(1.0 / 120.0, window=context.window)
-        wm.modal_handler_add(self)
-        BBUTILS_OT_ezphyzi_play._instance = self
-        _redraw(context, {'VIEW_3D'})
-        return {'RUNNING_MODAL'}
-
-    def _finish(self, context):
-        context.window_manager.event_timer_remove(self._timer)
-        BBUTILS_OT_ezphyzi_play._instance = None
-        _ez_state["launch"] = None
-        _redraw(context, {'VIEW_3D'})
-
-    def modal(self, context, event):
-        frames = _ez_state["frames"]
-        if (_ez_state["handle"] is None or not frames
-                or _ez_state["launch"] is None or event.type == 'ESC'):
-            self._finish(context)
-            return {'CANCELLED'}
-        if event.type == 'TIMER':
-            idx = int((time.perf_counter() - self._t0) * self._fps)
-            if idx >= len(frames):
-                self._finish(context)
-                return {'FINISHED'}
-            if idx != _ez_state["launch"]:
-                _ez_state["launch"] = idx
-                _redraw(context, {'VIEW_3D'})
-        return {'PASS_THROUGH'}         # orbit / zoom keep working
 
 
 class BBUTILS_OT_ezphyzi_center_pivot(Operator):
@@ -3334,9 +3276,6 @@ def _draw_ezphyzi(layout, context):
                  icon='HIDE_OFF' if previewing else 'HIDE_ON', depress=previewing)
     row.operator("bbutils.ezphyzi_resample", text="", icon='FILE_REFRESH')
 
-    row = box.row()
-    row.scale_y = 1.3
-    row.operator("bbutils.ezphyzi_play", text="Launch Preview", icon='PLAY')
 
     # collapsible sections (Blender 4.1+ layout panels; open/closed state is
     # remembered per editor)
@@ -3582,7 +3521,6 @@ classes = [
     BBUTILS_OT_bake_between_keyframes,
     BBUTILS_OT_ezphyzi_from_active,
     BBUTILS_OT_ezphyzi_toggle_preview,
-    BBUTILS_OT_ezphyzi_play,
     BBUTILS_OT_ezphyzi_center_pivot,
     BBUTILS_OT_ezphyzi_release_here,
     BBUTILS_OT_ezphyzi_resample,

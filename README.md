@@ -83,7 +83,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 | Orange ticks | The bone's orientation along the path |
 | Yellow dot | The **pivot**, the point the object spins around |
 
-- **Launch Preview** fires the object once along the path in real time, like a particle. The timeline does not move, so you never get double playback.
+- **During playback** the view gets out of the way: only the path, the grey simulated mesh and the pivot are drawn, without ticks, wire ghosts or frame dots.
 - With **Overlays → Extras** off, the path and ghosts hide but the grey simulated mesh stays, so you still see where the object goes.
 - Scene geometry (hands, gun) hides the overlay. Turn on **Display → In Front** to draw it on top.
 - Settings live in collapsible sections (Display, Pivot, Physics, Extra Push & Spin), so the panel stays short.

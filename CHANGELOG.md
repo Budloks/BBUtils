@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.22.0
+- Removed **Launch Preview**. Just play the animation instead: during playback the
+  overlay switches to the same clean look (path, grey simulated mesh and pivot only).
+
 ## 1.21.0
 - **Bake EzPhyzi** no longer keys scale. Scale keys are only added on frames where the
   baked scale really differs from the animated one, for example under a scaling parent.
