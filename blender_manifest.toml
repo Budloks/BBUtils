@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "bbutils"
-version = "1.16.0"
+version = "1.17.0"
 name = "BBUtils"
 tagline = "Animation, rigging, EzPhyzi and batch render tools"
 maintainer = "Budloks"

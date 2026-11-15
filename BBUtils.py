@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 16, 0),
+    "version": (1, 17, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -431,6 +431,15 @@ def _ezphyzi_on_resample(self, context):
         _ez_refresh(context, resample=True)
 
 
+def _ezphyzi_on_release(self, context):
+    """Editing the start frame always shows the result: refresh the preview,
+    or switch it on if it was hidden."""
+    if _ez_state["handle"] is not None:
+        _ez_refresh(context, resample=True)
+    elif _ez_valid(self):
+        _ez_preview_on(context)
+
+
 def _ezphyzi_on_sim(self, context):
     """A physics knob changed -> only the cheap simulation is re-run."""
     if _ez_state["handle"] is not None:
@@ -449,8 +458,9 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
     )
     release_frame: IntProperty(
         name="Release Frame",
-        description="Frame on which the object leaves the hand",
-        default=1, update=_ezphyzi_on_resample,
+        description="Frame on which the object leaves the hand - the preview "
+                    "updates as you change it",
+        default=1, update=_ezphyzi_on_release,
     )
     duration: IntProperty(
         name="Duration", description="How many frames to simulate after release",
@@ -2451,6 +2461,17 @@ class BBUTILS_OT_ezphyzi_center_pivot(Operator):
         return {'FINISHED'}
 
 
+class BBUTILS_OT_ezphyzi_release_here(Operator):
+    """Set the start (release) frame to the current frame"""
+    bl_idname = "bbutils.ezphyzi_release_here"
+    bl_label = "Start On Current Frame"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        context.scene.bbutils_ezphyzi_props.release_frame = context.scene.frame_current
+        return {'FINISHED'}
+
+
 class BBUTILS_OT_ezphyzi_resample(Operator):
     """Re-read the bone animation (use after editing the throw animation)"""
     bl_idname = "bbutils.ezphyzi_resample"
@@ -3280,6 +3301,10 @@ def _draw_ezphyzi(layout, context):
     row.scale_y = 1.4
     row.operator("bbutils.ezphyzi_from_active",
                  text="EzPhyzi It", icon='FORCE_FORCE')
+    row = box.row(align=True)
+    row.scale_y = 1.2
+    row.prop(mp, "release_frame", text="Start Frame")
+    row.operator("bbutils.ezphyzi_release_here", text="", icon='TIME')
     _draw_hint(box, "Pose mode: select the bone to throw,",
                     "go to the release frame, click")
 
@@ -3287,9 +3312,7 @@ def _draw_ezphyzi(layout, context):
     col.prop(mp, "armature")
     if mp.armature and mp.armature.type == 'ARMATURE':
         col.prop_search(mp, "bone_name", mp.armature.pose, "bones")
-    row = col.row(align=True)
-    row.prop(mp, "release_frame", text="Release")
-    row.prop(mp, "duration", text="Frames")
+    col.prop(mp, "duration", text="Frames")
 
     row = box.row(align=True)
     row.operator("bbutils.ezphyzi_toggle_preview",
@@ -3548,6 +3571,7 @@ classes = [
     BBUTILS_OT_ezphyzi_toggle_preview,
     BBUTILS_OT_ezphyzi_play,
     BBUTILS_OT_ezphyzi_center_pivot,
+    BBUTILS_OT_ezphyzi_release_here,
     BBUTILS_OT_ezphyzi_resample,
     BBUTILS_OT_ezphyzi_bake,
     BBUTILS_OT_flip_fcurve,
