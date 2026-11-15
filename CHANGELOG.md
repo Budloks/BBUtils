@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.21.0
+- **Bake EzPhyzi** no longer keys scale. Scale keys are only added on frames where the
+  baked scale really differs from the animated one, for example under a scaling parent.
+
 ## 1.20.0
 - Removed **Hide Real Mesh In Flight**. The real mesh now always stays visible during
   the preview, next to the grey simulated one.

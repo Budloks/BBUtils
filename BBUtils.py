@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 20, 0),
+    "version": (1, 21, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -2548,6 +2548,7 @@ class BBUTILS_OT_ezphyzi_bake(Operator):
             for i, (pos, rot) in enumerate(frames):
                 f = start + i
                 scene.frame_set(f)
+                anim_scale = pb.scale.copy()     # what the animation already gives
                 pb.matrix = arm.matrix_world.inverted() @ _ez_world(init, pos, rot, offset)
 
                 pb.keyframe_insert("location", frame=f, keytype=kt)
@@ -2565,7 +2566,12 @@ class BBUTILS_OT_ezphyzi_bake(Operator):
                     e = rot3.to_euler(mode, prev_e) if prev_e else rot3.to_euler(mode)
                     pb.rotation_euler = prev_e = e      # no 360 degree jumps
                     pb.keyframe_insert("rotation_euler", frame=f, keytype=kt)
-                pb.keyframe_insert("scale", frame=f, keytype=kt)
+                # the flight never changes scale: only key it when the result
+                # really differs from the animated scale (e.g. a scaling parent)
+                if any(abs(a - b) > 1e-4 for a, b in zip(pb.scale, anim_scale)):
+                    pb.keyframe_insert("scale", frame=f, keytype=kt)
+                else:
+                    pb.scale = anim_scale
         finally:
             scene.frame_set(original)
 
