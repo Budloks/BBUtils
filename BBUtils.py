@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 15, 0),
+    "version": (1, 16, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -14,6 +14,7 @@ import gpu
 import math
 import time
 import os
+import zlib
 from pathlib import Path
 from bpy.app.handlers import persistent
 from bpy.types import Panel, Operator, PropertyGroup, Menu, AddonPreferences
@@ -2206,9 +2207,10 @@ def _ez_draw_callback():
         return
     space = bpy.context.space_data
     overlay = getattr(space, "overlay", None)
-    if overlay is not None and not (overlay.show_overlays
-                                    and getattr(overlay, "show_extras", True)):
-        return                      # respect Overlays / Extras toggles
+    # with Overlays / Extras off only the grey stand-in mesh is drawn: it
+    # replaces the hidden real mesh, so it must stay visible like geometry
+    helpers = overlay is None or (overlay.show_overlays
+                                  and getattr(overlay, "show_extras", True))
     scene = bpy.context.scene
     p = scene.bbutils_ezphyzi_props
     if not _ez_valid(p):
@@ -2242,6 +2244,10 @@ def _ez_draw_callback():
             solid_sh.bind()
             batch.draw(solid_sh)
             gpu.state.depth_mask_set(False)
+
+    if not helpers:
+        gpu.state.depth_test_set('NONE')
+        return
 
     gpu.state.blend_set('ALPHA')
     # path, ghosts and pivot are hidden behind scene geometry unless In Front
@@ -2753,6 +2759,9 @@ _HUB_SPACES = [
 ]
 _HUB_WATCH_INTERVAL = 2.0
 _hub_orig = {}          # panel id -> {"category", "parent", "order"} before moving
+_hub_clones = {}        # panel id -> {"src", "classes", "space", "hub", "order"}
+_HUB_SKIP_ATTRS = {"__dict__", "__weakref__", "__module__", "__qualname__",
+                   "__doc__", "bl_rna", "__slots__", "__annotations__"}
 
 
 def _hub_prefs():
@@ -2863,6 +2872,71 @@ def _hub_restore(cls, panels):
     _hub_reregister(cls, mutate, panels)
 
 
+def _hub_orig_parent(cls):
+    pid = _hub_pid(cls)
+    if pid in _hub_orig:
+        return _hub_orig[pid]["parent"]
+    return getattr(cls, "bl_parent_id", "")
+
+
+def _hub_clone_id(pid):
+    return f"BBUTILS_PT_hub_{zlib.crc32(pid.encode()) & 0xffffffff:08x}"
+
+
+def _hub_clone_class(src, cid, space, category, parent, order):
+    """A brand-new Panel class carrying src's draw / poll / helpers, but living
+    in another editor. The original panel stays where it was."""
+    attrs = {}
+    for klass in reversed(src.__mro__):
+        if klass in bpy.types.Panel.__mro__:
+            continue
+        for key, value in klass.__dict__.items():
+            if key not in _HUB_SKIP_ATTRS:
+                attrs[key] = value
+    attrs.update(
+        bl_idname=cid, bl_space_type=space, bl_region_type='UI',
+        bl_category=category, bl_parent_id=parent, bl_order=order,
+        __module__=__name__,
+    )
+    return type(cid, (bpy.types.Panel,), attrs)
+
+
+def _hub_clone_tree(src, space, hub, order, panels, parent_cid=""):
+    """Clone a panel and (recursively) its sub-panels into `space`."""
+    cid = _hub_clone_id(_hub_pid(src))
+    new = _hub_clone_class(src, cid, space, hub, parent_cid, order)
+    bpy.utils.register_class(new)
+    out = [new]
+    for kid in panels:
+        if _hub_orig_parent(kid) == _hub_pid(src) and kid.bl_space_type == src.bl_space_type:
+            try:
+                out += _hub_clone_tree(kid, space, hub, getattr(kid, "bl_order", 0),
+                                       panels, cid)
+            except Exception as exc:
+                print(f"BBUtils Tab Hub: could not clone {_hub_pid(kid)}: {exc}")
+    return out
+
+
+def _hub_drop_clone(pid):
+    info = _hub_clones.pop(pid, None)
+    if not info:
+        return
+    for c in reversed(info["classes"]):
+        try:
+            bpy.utils.unregister_class(c)
+        except Exception:
+            pass
+
+
+def _hub_mode(cls, prefs):
+    """('move', space) when the hub is in the panel's own editor,
+    ('clone', target) when it has to be copied into another editor."""
+    target = prefs.hub_space
+    if target == 'SAME' or target == cls.bl_space_type:
+        return ('move', cls.bl_space_type)
+    return ('clone', target)
+
+
 def _hub_bring_to_front(space, hub):
     """Sidebar tabs appear in panel REGISTRATION order (bl_order does not
     change it), and freshly re-registered hub panels end up last. Re-register
@@ -2893,8 +2967,23 @@ def _hub_apply():
     hub = prefs.hub_name.strip() or "Hub"
     wanted = {e.panel_id: i for i, e in enumerate(prefs.hub_entries)}
     panels = _hub_all_panels()
+    desired = {}
+    for pid in wanted:
+        cls = _hub_find(pid, panels)
+        if cls is not None:
+            desired[pid] = (cls, _hub_mode(cls, prefs))
 
-    for pid in [p for p in _hub_orig if p not in wanted]:     # un-hubbed
+    # 1. drop clones that are no longer wanted or are out of date
+    for pid, info in list(_hub_clones.items()):
+        want = desired.get(pid)
+        if (want is None or want[1] != ('clone', info["space"])
+                or want[0] is not info["src"] or info["hub"] != hub
+                or info["order"] != wanted[pid]):
+            _hub_drop_clone(pid)
+    panels = _hub_all_panels()
+
+    # 2. send moved panels back if they are no longer moved
+    for pid in [p for p in _hub_orig if desired.get(p, (None, (None,)))[1][0] != 'move']:
         cls = _hub_find(pid, panels)
         if cls is None:
             _hub_orig.pop(pid, None)
@@ -2905,19 +2994,27 @@ def _hub_apply():
                 print(f"BBUtils Tab Hub: could not restore {pid}: {exc}")
             panels = _hub_all_panels()
 
-    moved_spaces = set()
+    changed_spaces = set()
     for pid, order in wanted.items():
-        cls = _hub_find(pid, panels)
-        if cls is None or not _hub_needs_move(cls, hub, order):
+        if pid not in desired:
             continue
+        cls = _hub_find(pid, panels)
+        mode, space = desired[pid][1]
         try:
-            _hub_move(cls, hub, order, panels)
-            moved_spaces.add(cls.bl_space_type)
+            if mode == 'move':
+                if _hub_needs_move(cls, hub, order):
+                    _hub_move(cls, hub, order, panels)
+                    changed_spaces.add(space)
+            elif pid not in _hub_clones:
+                classes = _hub_clone_tree(cls, space, hub, order, panels)
+                _hub_clones[pid] = {"src": cls, "classes": classes,
+                                    "space": space, "hub": hub, "order": order}
+                changed_spaces.add(space)
         except Exception as exc:
-            print(f"BBUtils Tab Hub: could not move {pid}: {exc}")
+            print(f"BBUtils Tab Hub: could not hub {pid}: {exc}")
         panels = _hub_all_panels()
 
-    for space in moved_spaces:
+    for space in changed_spaces:
         _hub_bring_to_front(space, hub)
 
     for window in bpy.context.window_manager.windows:
@@ -2926,6 +3023,8 @@ def _hub_apply():
 
 
 def _hub_restore_all():
+    for pid in list(_hub_clones):
+        _hub_drop_clone(pid)
     panels = _hub_all_panels()
     for pid in list(_hub_orig):
         cls = _hub_find(pid, panels)
@@ -2947,7 +3046,13 @@ def _hub_watchdog():
             panels = _hub_all_panels()
             for i, e in enumerate(prefs.hub_entries):
                 cls = _hub_find(e.panel_id, panels)
-                if cls is not None and _hub_needs_move(cls, hub, i):
+                if cls is None:
+                    continue
+                mode, _space = _hub_mode(cls, prefs)
+                info = _hub_clones.get(e.panel_id)
+                stale = (_hub_needs_move(cls, hub, i) if mode == 'move'
+                         else info is None or info["src"] is not cls)
+                if stale:
                     _hub_apply()
                     break
     except Exception as exc:
@@ -2973,11 +3078,21 @@ class BBUtilsPreferences(AddonPreferences):
         description="Sidebar tab that collects the hubbed panels",
         update=_hub_on_name,
     )
+    hub_space: EnumProperty(
+        name="Hub In",
+        description="Editor whose sidebar holds the hub tab. Panels from other "
+                    "editors are copied there; the originals stay in place",
+        items=[('SAME', "Each Panel's Own Editor",
+                "Move panels into a hub tab inside their own editor")] + _HUB_SPACES,
+        default='SAME',
+        update=_hub_on_name,
+    )
     hub_entries: CollectionProperty(type=BBUtilsHubEntry)
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "hub_name")
+        layout.prop(self, "hub_space")
         box = layout.box()
         box.label(text=f"Panels in the hub ({len(self.hub_entries)})", icon='WINDOW')
         if not len(self.hub_entries):
@@ -3082,8 +3197,11 @@ class BBUTILS_OT_tabhub_manager(Operator):
         hubbed = {e.panel_id for e in prefs.hub_entries}
 
         row = layout.row(align=True)
-        row.prop(self, "space", text="")
         row.prop(prefs, "hub_name", text="Tab")
+        row.prop(prefs, "hub_space", text="In")
+        row = layout.row(align=True)
+        row.label(text="Browse:")
+        row.prop(self, "space", text="")
         layout.prop(self, "search", text="", icon='VIEWZOOM')
 
         panels = [c for c in _hub_all_panels()
@@ -3091,7 +3209,11 @@ class BBUTILS_OT_tabhub_manager(Operator):
         by_id = {_hub_pid(c): c for c in panels}
 
         # ── panels already in the hub, in hub order ──
-        in_hub = [e for e in prefs.hub_entries if e.space == self.space]
+        if prefs.hub_space == 'SAME':
+            in_hub = [e for e in prefs.hub_entries if e.space == self.space]
+        else:
+            in_hub = list(prefs.hub_entries)
+        names = {k: n for k, n, _ in _HUB_SPACES}
         if in_hub:
             box = layout.box()
             box.label(text=f"In '{prefs.hub_name}'", icon='PINNED')
@@ -3099,8 +3221,11 @@ class BBUTILS_OT_tabhub_manager(Operator):
                 r = box.row(align=True)
                 op = r.operator("bbutils.tabhub_toggle", text="", icon='X', emboss=False)
                 op.panel_id = e.panel_id
-                live = by_id.get(e.panel_id)
-                r.label(text=_hub_label(live) if live else f"{e.label} (not loaded)")
+                live = by_id.get(e.panel_id) or _hub_find(e.panel_id)
+                text = _hub_label(live) if live else f"{e.label} (not loaded)"
+                if e.space != self.space:
+                    text += f"   [{names.get(e.space, e.space)}]"
+                r.label(text=text)
                 op = r.operator("bbutils.tabhub_move", text="", icon='TRIA_UP')
                 op.panel_id, op.direction = e.panel_id, -1
                 op = r.operator("bbutils.tabhub_move", text="", icon='TRIA_DOWN')

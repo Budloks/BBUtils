@@ -84,7 +84,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 
 - **Launch Preview** fires the object once along the path in real time, like a particle. The timeline does not move, so you never get double playback.
 - **Hide Real Mesh In Flight** hides the real, unbaked mesh after release, so you only see the simulated one.
-- The overlay follows the viewport's **Overlays → Extras** toggle.
+- With **Overlays → Extras** off, the path and ghosts hide but the grey stand-in mesh stays, because it replaces the hidden real mesh.
 - Scene geometry (hands, gun) hides the overlay. Turn on **Display → In Front** to draw it on top.
 - Settings live in collapsible sections (Display, Pivot, Physics, Extra Push & Spin), so the panel stays short.
 
@@ -125,6 +125,7 @@ Tab Hub lets you pick the panels you actually use and moves them into one tab.
 - Click **Tab Hub** at the top of any BBUtils panel. You get a list of every tab in that editor, with its panels and their **sections**.
 - Tick a **panel** to move it with all of its sections, or tick just one **section**. The section is lifted out of its parent and becomes its own panel in the hub.
 - The hub tab sits right under **Item**, at the top of the strip, and the other tabs keep their order.
+- **Hub In** chooses the editor that holds the hub. Set it to *Dope Sheet* and you can collect panels from the 3D Viewport (or any other editor) right next to your keys. Panels from other editors are copied there, so the originals stay in their tabs. A copied panel runs its add-on's own code in the new editor; most work, but a panel that relies on 3D-viewport-only context may not.
 - Reorder hub panels with the arrows. Untick a panel to send it back.
 - Your choices are saved in the add-on preferences. A small watchdog re-applies them when other add-ons register or reload their panels.
 - It works in the 3D Viewport, Dope Sheet, Graph Editor, NLA, Node, Image, Sequencer, Clip and Text editors.

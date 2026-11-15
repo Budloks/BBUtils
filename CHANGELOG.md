@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.16.0
+- **Tab Hub across editors**: a new **Hub In** setting puts the hub tab in a chosen
+  editor, for example the Dope Sheet. Panels from other editors' tabs are copied
+  there and the originals stay where they were.
+- The grey EzPhyzi stand-in mesh stays visible with Overlays / Extras off. Only the
+  helper lines and ghosts hide.
+
 ## 1.15.0
 - The EzPhyzi overlay is now hidden behind scene geometry. A new **In Front** option draws it on top again.
 - EzPhyzi settings are grouped into collapsible sections: **Display**, **Pivot**,
