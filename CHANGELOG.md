@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.0
+- The EzPhyzi overlay is now hidden behind scene geometry. A new **In Front** option draws it on top again.
+- EzPhyzi settings are grouped into collapsible sections: **Display**, **Pivot**,
+  **Physics** and **Extra Push & Spin** (rarely used sections start collapsed).
+
 ## 1.14.0
 - **Tab Hub**: move whole panels, or single sections, from any add-on into one sidebar
   tab placed at the top of the tab strip. You can reorder the hub and send panels back.

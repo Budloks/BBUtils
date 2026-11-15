@@ -85,6 +85,8 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 - **Launch Preview** fires the object once along the path in real time, like a particle. The timeline does not move, so you never get double playback.
 - **Hide Real Mesh In Flight** hides the real, unbaked mesh after release, so you only see the simulated one.
 - The overlay follows the viewport's **Overlays → Extras** toggle.
+- Scene geometry (hands, gun) hides the overlay. Turn on **Display → In Front** to draw it on top.
+- Settings live in collapsible sections (Display, Pivot, Physics, Extra Push & Spin), so the panel stays short.
 
 ### Settings
 

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 14, 0),
+    "version": (1, 15, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -501,6 +501,12 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
     friction: FloatProperty(
         name="Friction", description="How much sliding speed is lost on contact",
         default=0.5, min=0.0, max=1.0, update=_ezphyzi_on_sim,
+    )
+    show_in_front: BoolProperty(
+        name="In Front",
+        description="Draw the path, ghosts and pivot on top of everything "
+                    "instead of letting scene geometry hide them",
+        default=False, update=_ezphyzi_on_sim,
     )
     ghost_step: IntProperty(
         name="Ghost Every", description="Draw a ghost of the mesh every N frames",
@@ -2238,7 +2244,8 @@ def _ez_draw_callback():
             gpu.state.depth_mask_set(False)
 
     gpu.state.blend_set('ALPHA')
-    gpu.state.depth_test_set('NONE')
+    # path, ghosts and pivot are hidden behind scene geometry unless In Front
+    gpu.state.depth_test_set('NONE' if p.show_in_front else 'LESS_EQUAL')
     vp = gpu.state.viewport_get()
 
     line_sh.bind()
@@ -2276,6 +2283,7 @@ def _ez_draw_callback():
 
     gpu.state.point_size_set(1.0)
     gpu.state.blend_set('NONE')
+    gpu.state.depth_test_set('NONE')
 
 
 def _ez_preview_on(context):
@@ -3167,34 +3175,47 @@ def _draw_ezphyzi(layout, context):
     row = box.row()
     row.scale_y = 1.3
     row.operator("bbutils.ezphyzi_play", text="Launch Preview", icon='PLAY')
-    box.prop(mp, "hide_real_mesh")
 
-    col = box.column(align=True)
-    row = col.row(align=True)
-    row.label(text="Pivot (bone local)", icon='PIVOT_CURSOR')
-    row.operator("bbutils.ezphyzi_center_pivot", text="", icon='PIVOT_BOUNDBOX')
-    col.prop(mp, "pivot_offset", text="")
+    # collapsible sections (Blender 4.1+ layout panels; open/closed state is
+    # remembered per editor)
+    header, body = box.panel("BBUTILS_ez_display", default_closed=True)
+    header.label(text="Display", icon='OVERLAY')
+    if body:
+        body.prop(mp, "show_in_front")
+        body.prop(mp, "hide_real_mesh")
+        body.prop(mp, "ghost_step")
 
-    col = box.column(align=True)
-    col.prop(mp, "gravity_scale", slider=False)
-    col.prop(mp, "inherit_velocity")
-    col.prop(mp, "inherit_spin")
-    col.prop(mp, "linear_drag")
-    col.prop(mp, "angular_damping")
-    box.prop(mp, "extra_impulse")
-    box.prop(mp, "extra_spin")
+    header, body = box.panel("BBUTILS_ez_pivot", default_closed=True)
+    header.label(text="Pivot (bone local)", icon='PIVOT_CURSOR')
+    header.operator("bbutils.ezphyzi_center_pivot", text="", icon='PIVOT_BOUNDBOX')
+    if body:
+        body.prop(mp, "pivot_offset", text="")
 
-    row = box.row(align=True)
-    row.prop(mp, "use_floor")
-    sub = row.row(align=True)
-    sub.active = mp.use_floor
-    sub.prop(mp, "floor_height", text="")
-    if mp.use_floor:
-        row = box.row(align=True)
-        row.prop(mp, "bounce", slider=True)
-        row.prop(mp, "friction", slider=True)
+    header, body = box.panel("BBUTILS_ez_physics", default_closed=False)
+    header.label(text="Physics", icon='PHYSICS')
+    if body:
+        col = body.column(align=True)
+        col.prop(mp, "gravity_scale", slider=False)
+        col.prop(mp, "inherit_velocity")
+        col.prop(mp, "inherit_spin")
+        col.prop(mp, "linear_drag")
+        col.prop(mp, "angular_damping")
+        row = body.row(align=True)
+        row.prop(mp, "use_floor")
+        sub = row.row(align=True)
+        sub.active = mp.use_floor
+        sub.prop(mp, "floor_height", text="")
+        if mp.use_floor:
+            row = body.row(align=True)
+            row.prop(mp, "bounce", slider=True)
+            row.prop(mp, "friction", slider=True)
 
-    box.prop(mp, "ghost_step")
+    header, body = box.panel("BBUTILS_ez_extra", default_closed=True)
+    header.label(text="Extra Push & Spin", icon='FORCE_WIND')
+    if body:
+        body.prop(mp, "extra_impulse")
+        body.prop(mp, "extra_spin")
+
     box.prop(mp, "key_constraints_off")
     box.prop(mp, "key_type")
     row = box.row()
