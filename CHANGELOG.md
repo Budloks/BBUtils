@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.0
+- New EzPhyzi defaults: **Gravity 8.0** and **Inherit Spin 0.6**, tuned for snappy
+  viewmodel magazine throws. Scenes that already use EzPhyzi keep their values.
+
 ## 1.18.0
 - The EzPhyzi preview follows rig edits live. Moving the bone by hand on the start
   frame (or the frame before it) updates the throw from the live pose without

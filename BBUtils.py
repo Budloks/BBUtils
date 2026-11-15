@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 18, 0),
+    "version": (1, 19, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -472,7 +472,7 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
     )
     gravity_scale: FloatProperty(
         name="Gravity", description="Multiplier of the scene gravity",
-        default=1.0, min=0.0, soft_max=10.0, update=_ezphyzi_on_sim,
+        default=8.0, min=0.0, soft_max=10.0, update=_ezphyzi_on_sim,
     )
     inherit_velocity: FloatProperty(
         name="Inherit Velocity",
@@ -482,7 +482,7 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
     inherit_spin: FloatProperty(
         name="Inherit Spin",
         description="How much of the animated rotation speed the object keeps",
-        default=1.0, min=0.0, soft_max=3.0, update=_ezphyzi_on_sim,
+        default=0.6, min=0.0, soft_max=3.0, update=_ezphyzi_on_sim,
     )
     extra_impulse: FloatVectorProperty(
         name="Extra Push", subtype='VELOCITY', size=3,
