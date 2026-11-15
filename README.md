@@ -84,8 +84,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 | Yellow dot | The **pivot**, the point the object spins around |
 
 - **Launch Preview** fires the object once along the path in real time, like a particle. The timeline does not move, so you never get double playback.
-- **Hide Real Mesh In Flight** hides the real, unbaked mesh after release, so you only see the simulated one.
-- With **Overlays → Extras** off, the path and ghosts hide but the grey stand-in mesh stays, because it replaces the hidden real mesh.
+- With **Overlays → Extras** off, the path and ghosts hide but the grey simulated mesh stays, so you still see where the object goes.
 - Scene geometry (hands, gun) hides the overlay. Turn on **Display → In Front** to draw it on top.
 - Settings live in collapsible sections (Display, Pivot, Physics, Extra Push & Spin), so the panel stays short.
 

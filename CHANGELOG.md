@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.0
+- Removed **Hide Real Mesh In Flight**. The real mesh now always stays visible during
+  the preview, next to the grey simulated one.
+
 ## 1.19.0
 - New EzPhyzi defaults: **Gravity 8.0** and **Inherit Spin 0.6**, tuned for snappy
   viewmodel magazine throws. Scenes that already use EzPhyzi keep their values.

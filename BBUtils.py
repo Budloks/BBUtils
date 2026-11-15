@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 19, 0),
+    "version": (1, 20, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -537,12 +537,6 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
         description="Point the object spins around, offset from the bone head "
                     "in the bone's LOCAL space (shown as the yellow dot)",
         default=(0.0, 0.0, 0.0), update=_ezphyzi_on_sim,
-    )
-    hide_real_mesh: BoolProperty(
-        name="Hide Real Mesh In Flight",
-        description="While previewing, hide the real (unbaked) mesh after the "
-                    "release frame so only the simulated one is visible",
-        default=True, update=_ezphyzi_on_sim,
     )
     key_type: EnumProperty(
         name="Key Type", description="Keyframe type given to the baked keys",
@@ -1865,10 +1859,8 @@ _ez_state = {
     "batches": None,    # cached static GPU batches
     "ghosts": {},       # frame index -> wire ghost batch
     "solids": {},       # frame index -> shaded solid ghost batch
-    "hidden": [],       # real meshes hidden by the preview
     "launch": None,     # frame index of the one-shot launch, None = idle
-    "sampling": False,  # suspend auto-hide while evaluating
-    "hide_pending": False,
+    "sampling": False,  # True while _ez_sample changes frames
     "auto_pending": None,   # 'light' / 'full' refresh queued by a rig edit
 }
 
@@ -1994,7 +1986,6 @@ def _ez_sample(context, p):
     """Evaluate the bone at release-1 and release. Only raw matrices are kept,
     so the pivot offset can change later without re-evaluating the scene."""
     scene = context.scene
-    _ez_unhide_real()               # hidden objects may skip evaluation
     _ez_state["sampling"] = True
     f = p.release_frame
     original = scene.frame_current
@@ -2099,62 +2090,7 @@ def _ez_refresh(context, resample):
     _ez_state["batches"] = None
     _ez_state["ghosts"] = {}
     _ez_state["solids"] = {}
-    _ez_apply_hide(context.scene)
     _redraw(context, {'VIEW_3D'})
-
-
-# ── hiding the real mesh while the simulated one is shown ───────────────────
-
-def _ez_unhide_real():
-    for obj in _ez_state["hidden"]:
-        try:
-            obj.hide_set(False)
-        except (ReferenceError, RuntimeError):
-            pass
-    _ez_state["hidden"] = []
-
-
-def _ez_apply_hide(scene):
-    """After the release frame the real mesh still sits in the hand (it is not
-    baked yet) - hide it so only the simulated ghost is visible."""
-    p = scene.bbutils_ezphyzi_props
-    frames = _ez_state["frames"]
-    if not (frames and p.hide_real_mesh and _ez_valid(p)):
-        _ez_unhide_real()
-        return
-    in_flight = (_ez_state["launch"] is not None
-                 or 0 <= scene.frame_current - p.release_frame < len(frames))
-    if not in_flight:
-        _ez_unhide_real()
-        return
-    for obj in _ez_bound_objects(p.armature, p.bone_name):
-        if obj not in _ez_state["hidden"] and not obj.hide_get():
-            try:
-                obj.hide_set(True)
-                _ez_state["hidden"].append(obj)
-            except RuntimeError:        # not in the active view layer
-                pass
-
-
-def _ez_hide_timer():
-    _ez_state["hide_pending"] = False
-    if _ez_state["handle"] is not None and not _ez_state["sampling"]:
-        try:
-            _ez_apply_hide(bpy.context.scene)
-        except (ReferenceError, AttributeError):
-            pass
-    return None                     # run once
-
-
-@persistent
-def _ez_on_frame_change(scene, *_args):
-    # NEVER touch visibility here: frame_change_post runs while the depsgraph
-    # is being evaluated and hide_set() there crashes Blender
-    # (deg_check_base_in_depsgraph). Defer it to the main loop instead.
-    if (_ez_state["handle"] is not None and not _ez_state["sampling"]
-            and not _ez_state["hide_pending"]):
-        _ez_state["hide_pending"] = True
-        bpy.app.timers.register(_ez_hide_timer, first_interval=0.0)
 
 
 # ── drawing ─────────────────────────────────────────────────────────────────
@@ -2379,8 +2315,6 @@ def _ez_preview_on(context):
     if _ez_state["handle"] is None:
         _ez_state["handle"] = bpy.types.SpaceView3D.draw_handler_add(
             _ez_draw_callback, (), 'WINDOW', 'POST_VIEW')
-    if _ez_on_frame_change not in bpy.app.handlers.frame_change_post:
-        bpy.app.handlers.frame_change_post.append(_ez_on_frame_change)
     if _ez_on_depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_ez_on_depsgraph)
     _ez_refresh(context, resample=True)
@@ -2390,14 +2324,11 @@ def _ez_preview_off(context=None):
     _ez_state["launch"] = None
     if _ez_state["handle"] is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_ez_state["handle"], 'WINDOW')
-    if _ez_on_frame_change in bpy.app.handlers.frame_change_post:
-        bpy.app.handlers.frame_change_post.remove(_ez_on_frame_change)
     if _ez_on_depsgraph in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_ez_on_depsgraph)
     if bpy.app.timers.is_registered(_ez_auto_timer):
         bpy.app.timers.unregister(_ez_auto_timer)
     _ez_state["auto_pending"] = None
-    _ez_unhide_real()
     _ez_state.update(handle=None, init=None, frames=None, batches=None,
                      ghosts={}, solids={})
     if context is not None:
@@ -2406,7 +2337,6 @@ def _ez_preview_off(context=None):
 
 @persistent
 def _ez_on_load_pre(*_args):
-    _ez_state["hidden"] = []        # objects belong to the old file
     _ez_preview_off()
 
 
@@ -2486,7 +2416,6 @@ class BBUTILS_OT_ezphyzi_play(Operator):
         self._t0 = time.perf_counter()
         self._fps = _ez_fps(context.scene)
         _ez_state["launch"] = 0
-        _ez_apply_hide(context.scene)
         wm = context.window_manager
         self._timer = wm.event_timer_add(1.0 / 120.0, window=context.window)
         wm.modal_handler_add(self)
@@ -2498,7 +2427,6 @@ class BBUTILS_OT_ezphyzi_play(Operator):
         context.window_manager.event_timer_remove(self._timer)
         BBUTILS_OT_ezphyzi_play._instance = None
         _ez_state["launch"] = None
-        _ez_apply_hide(context.scene)
         _redraw(context, {'VIEW_3D'})
 
     def modal(self, context, event):
@@ -3410,7 +3338,6 @@ def _draw_ezphyzi(layout, context):
     header.label(text="Display", icon='OVERLAY')
     if body:
         body.prop(mp, "show_in_front")
-        body.prop(mp, "hide_real_mesh")
         body.prop(mp, "ghost_step")
 
     header, body = box.panel("BBUTILS_ez_pivot", default_closed=True)
