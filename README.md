@@ -96,7 +96,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 |---|---|
 | Start Frame | Release frame, right under **EzPhyzi It**. The 🕒 button sets it to the current frame. Changing it refreshes the preview at once. |
 | Frames | How many frames to simulate |
-| Pivot (bone local) | Spin centre as an XYZ offset from the bone head in the bone's local space. The ⌖ button snaps it to the mesh centre. |
+| Pivot (bone local) | Spin centre as an XYZ offset from the bone head in the bone's local space. It snaps to the mesh centre whenever you pick a bone, and the ⌖ button snaps it back. |
 | Gravity | Multiplier of the scene gravity |
 | Inherit Velocity / Spin | How much of the animated hand motion the object keeps |
 | Extra Push / Extra Spin | Extra velocity / angular velocity at release, in bone-local axes |

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 22, 0),
+    "version": (1, 23, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -434,6 +434,20 @@ def _ezphyzi_on_resample(self, context):
         _ez_refresh(context, resample=True)
 
 
+def _ezphyzi_on_bone(self, context):
+    """New bone picked -> resample and put the pivot in the middle of its mesh."""
+    if not _ez_valid(self):
+        return
+    if _ez_state["handle"] is not None:
+        _ez_refresh(context, resample=True)
+        init = _ez_state["init"]
+    else:
+        init = _ez_sample(context, self)
+    centre = _ez_mesh_centre(init) if init else None
+    if centre is not None:
+        self.pivot_offset = centre
+
+
 def _ezphyzi_on_release(self, context):
     """Editing the start frame always shows the result: refresh the preview,
     or switch it on if it was hidden."""
@@ -456,8 +470,9 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
         update=_ezphyzi_on_resample,
     )
     bone_name: StringProperty(
-        name="Bone", description="Bone to throw (magazine, shell, grenade pin...)",
-        update=_ezphyzi_on_resample,
+        name="Bone", description="Bone to throw (magazine, shell, grenade pin...). "
+                                 "Picking a bone puts the pivot in the middle of its mesh",
+        update=_ezphyzi_on_bone,
     )
     release_frame: IntProperty(
         name="Release Frame",
@@ -2388,6 +2403,16 @@ class BBUTILS_OT_ezphyzi_toggle_preview(Operator):
         return {'FINISHED'}
 
 
+def _ez_mesh_centre(init):
+    """Bounding-box centre of the bone's mesh, in bone-local space."""
+    verts = init["ghost"][0]
+    if not verts:
+        return None
+    lo = Vector(tuple(min(v[i] for v in verts) for i in range(3)))
+    hi = Vector(tuple(max(v[i] for v in verts) for i in range(3)))
+    return (lo + hi) * 0.5
+
+
 class BBUTILS_OT_ezphyzi_center_pivot(Operator):
     """Put the pivot in the middle of the bone's mesh (bounding-box centre)"""
     bl_idname = "bbutils.ezphyzi_center_pivot"
@@ -2400,14 +2425,11 @@ class BBUTILS_OT_ezphyzi_center_pivot(Operator):
 
     def execute(self, context):
         p = context.scene.bbutils_ezphyzi_props
-        init = _ez_state["init"] or _ez_sample(context, p)
-        verts = init["ghost"][0]
-        if not verts:
+        centre = _ez_mesh_centre(_ez_state["init"] or _ez_sample(context, p))
+        if centre is None:
             self.report({'WARNING'}, f"No mesh is parented to bone '{p.bone_name}'")
             return {'CANCELLED'}
-        lo = Vector(tuple(min(v[i] for v in verts) for i in range(3)))
-        hi = Vector(tuple(max(v[i] for v in verts) for i in range(3)))
-        p.pivot_offset = (lo + hi) * 0.5
+        p.pivot_offset = centre
         return {'FINISHED'}
 
 

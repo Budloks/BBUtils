@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.23.0
+- The EzPhyzi pivot snaps to the mesh centre by default whenever you pick a bone
+  (**EzPhyzi It** or the Bone field). You can still edit it afterwards.
+
 ## 1.22.0
 - Removed **Launch Preview**. Just play the animation instead: during playback the
   overlay switches to the same clean look (path, grey simulated mesh and pivot only).
