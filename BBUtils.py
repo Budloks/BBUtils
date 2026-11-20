@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 23, 0),
+    "version": (1, 24, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -2897,6 +2897,49 @@ def _hub_clone_class(src, cid, space, category, parent, order):
         bl_category=category, bl_parent_id=parent, bl_order=order,
         __module__=__name__,
     )
+    # bl_context means something else in another editor and can hide the
+    # panel for good; a hidden header would make it impossible to collapse
+    attrs.pop("bl_context", None)
+    opts = set(attrs.get("bl_options", set())) - {'HIDE_HEADER', 'INSTANCED'}
+    attrs["bl_options"] = opts
+
+    # Always show the panel in the hub. When the add-on's own poll() says
+    # "not now" (e.g. it needs an active object), show a short note instead
+    # of letting the panel silently vanish.
+    src_poll = attrs.get("poll")
+    src_draw = attrs.get("draw")
+    src_header = attrs.get("draw_header")
+
+    def _available(self, context):
+        if src_poll is None:
+            return True
+        try:
+            return bool(src_poll.__get__(None, type(self))(context))
+        except Exception:
+            return False
+
+    def poll(cls, context):
+        return True
+
+    def draw(self, context):
+        if not _available(self, context):
+            col = self.layout.column(align=True)
+            col.scale_y = 0.8
+            col.label(text="Hidden by its add-on", icon='INFO')
+            col.label(text="e.g. needs active object")
+            return
+        if src_draw is not None:
+            src_draw(self, context)
+
+    attrs["poll"] = classmethod(poll)
+    attrs["draw"] = draw
+    if src_header is not None:
+        def draw_header(self, context):
+            try:
+                src_header(self, context)
+            except Exception:
+                self.layout.label(text=_hub_label(src))
+        attrs["draw_header"] = draw_header
     return type(cid, (bpy.types.Panel,), attrs)
 
 

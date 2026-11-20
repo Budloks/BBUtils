@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.24.0
+- Tab Hub: panels copied into another editor always show up and stay collapsible.
+  When the add-on itself hides a panel (for example it needs an active object), the
+  hub shows a short note instead of the panel vanishing.
+
 ## 1.23.0
 - The EzPhyzi pivot snaps to the mesh centre by default whenever you pick a bone
   (**EzPhyzi It** or the Bone field). You can still edit it afterwards.
