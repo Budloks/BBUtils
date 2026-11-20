@@ -175,9 +175,11 @@ Your render settings are restored afterwards.
 
 | Editor | Sidebar (N) → BBUtils |
 |---|---|
-| 3D Viewport | Tab Hub · Constraints & Bones · Animation · **EzPhyzi** · NLA · F-Curves · Batch Render |
-| Dope Sheet | Tab Hub · Animation Tools · Baking · **EzPhyzi** · NLA |
+| 3D Viewport | Tab Hub · Constraints & Bones · Bone Shapes & Locks · Animation · **EzPhyzi** · NLA · F-Curves · Batch Render |
+| Dope Sheet | Tab Hub · Keyframe Management · Baking · **EzPhyzi** · NLA |
 | Graph Editor | Tab Hub · F-Curve Tools · Animation Tools |
+
+Every category is its own collapsible sub-panel. Blender remembers what you collapsed, and you can reorder categories by dragging their ⠿ handle.
 
 ---
 

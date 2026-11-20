@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 24, 0),
+    "version": (1, 25, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -3313,11 +3313,10 @@ class BBUTILS_OT_tabhub_manager(Operator):
 
 
 def _draw_ezphyzi(layout, context):
-    """EzPhyzi section, shared by the 3D View and Dope Sheet panels."""
+    """EzPhyzi section UI, shared by the 3D View and Dope Sheet sub-panels."""
     mp = context.scene.bbutils_ezphyzi_props
     previewing = _ez_state["handle"] is not None
-    box = layout.box()
-    box.label(text="EzPhyzi", icon='PHYSICS')
+    box = layout.column()
     row = box.row()
     row.scale_y = 1.4
     row.operator("bbutils.ezphyzi_from_active",
@@ -3390,176 +3389,177 @@ def _draw_ezphyzi(layout, context):
                     "no Child Of, no extra bake needed")
 
 
-class BBUTILS_PT_dopesheet_panel(Panel):
+# ─────────────────────────────────────────────────────────────────────────────
+#  PANELS - one parent per editor (Tab Hub button) + one collapsible
+#  sub-panel per category
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _sec_constraints(layout, context):
+    ctrl_props = context.scene.bbutils_controller_props
+    col = layout.column()
+    col.operator("bbutils.apply_child_of_constraints",
+                 text="Apply Child Of Constraints", icon='BONE_DATA')
+    col.operator("bbutils.connect_rigs", text="Connect Rigs", icon='LINKED')
+    _draw_hint(layout, "Select 2 rigs; the active (last selected) one is the target",
+                       "Copy Transforms on all bones with matching names")
+    layout.separator()
+    row = layout.row(align=True)
+    row.operator("bbutils.create_controller_bones", text="Create Controllers", icon='ADD')
+    row.operator("bbutils.remove_controller_bones", text="Remove Controllers", icon='REMOVE')
+    layout.prop(ctrl_props, "suffix")
+    layout.prop(ctrl_props, "hide_original")
+    layout.prop(ctrl_props, "color_controllers")
+
+
+def _sec_shapes(layout, context):
+    shape_props = context.scene.bbutils_shape_props
+    layout.prop(shape_props, "shape_preset")
+    if shape_props.shape_preset == 'CUSTOM':
+        layout.prop(shape_props, "custom_shape_object", text="Object")
+    row = layout.row(align=True)
+    row.operator("bbutils.set_custom_shape",   text="Set on Selected", icon='OUTLINER_OB_MESH')
+    row.operator("bbutils.reset_custom_shape", text="Reset",           icon='BONE_DATA')
+    _draw_hint(layout, "Set: assigns the shape above to ALL selected bones",
+                       "Reset: clears shape and/or its transform")
+    layout.separator()
+    layout.operator("bbutils.unlock_channels", text="Unlock All Channels", icon='UNLOCKED')
+    _draw_hint(layout, "Clears Location/Rotation/Scale padlocks on selected bones")
+
+
+def _sec_keyframes(layout, context):
+    col = layout.column()
+    col.operator("bbutils.wipe_animation_data",       text="Wipe Animation Data",       icon='CANCEL')
+    col.operator("bbutils.key_constraint_influences", text="Key Constraint Influences", icon='CONSTRAINT')
+    col.operator("bbutils.key_matching_channels",     text="Key Matching Channels",     icon='KEYINGSET')
+
+
+def _sec_baking(layout, context):
+    layout.operator("bbutils.bake_between_keyframes", text="Bake Between Keyframes", icon='KEY_HLT')
+
+
+def _sec_animation(layout, context):
+    _sec_keyframes(layout, context)
+    _sec_baking(layout, context)
+
+
+def _sec_graph_animation(layout, context):
+    col = layout.column()
+    col.operator("bbutils.wipe_animation_data",       text="Wipe Animation Data",       icon='CANCEL')
+    col.operator("bbutils.key_constraint_influences", text="Key Constraint Influences", icon='CONSTRAINT')
+
+
+def _sec_nla(layout, context):
+    row = layout.row(align=True)
+    row.operator("bbutils.stash_all_actions",     text="Stash All",  icon='NLA')
+    row.operator("bbutils.delete_all_nla_tracks", text="Delete All", icon='TRASH')
+
+
+def _sec_fcurves(layout, context):
+    layout.operator("bbutils.flip_fcurve", text="Flip F-Curve", icon='ARROW_LEFTRIGHT')
+    _draw_hint(layout, "Flips selected curves + handles vertically")
+
+
+def _sec_batch_render(layout, context):
+    props = context.scene.bbutils_render_props
+    layout.prop(props, "output_folder", text="")
+    layout.prop(props, "armature_object", text="Armature")
+    layout.prop(props, "camera_object",   text="Camera")
+    layout.prop(props, "action_filter",   text="Filter")
+    col = layout.column(align=True)
+    row = col.row(align=True)
+    row.prop(props, "resolution_x", text="X")
+    row.prop(props, "resolution_y", text="Y")
+    col.prop(props, "resolution_percentage", slider=True)
+    layout.prop(props, "use_custom_range")
+    if props.use_custom_range:
+        row = layout.row(align=True)
+        row.prop(props, "frame_start", text="Start")
+        row.prop(props, "frame_end",   text="End")
+    layout.separator(factor=0.5)
+    row = layout.row()
+    row.scale_y = 1.6
+    row.operator("bbutils.batch_viewport_render",
+                 text="Render All Actions", icon='RENDER_ANIMATION')
+
+
+class _BBUtilsParentPanel:
     bl_label = "BBUtils"
-    bl_idname = "BBUTILS_PT_dopesheet_panel"
-    bl_space_type = 'DOPESHEET_EDITOR'
     bl_region_type = 'UI'
     bl_category = "BBUtils"
 
     def draw(self, context):
-        layout = self.layout
-        layout.operator("bbutils.tabhub_manager", text="Tab Hub", icon='WINDOW')
-        layout.separator(factor=0.5)
-
-        box = layout.box()
-        box.label(text="Animation Tools", icon='ANIM')
-
-        sub = box.box()
-        sub.label(text="Keyframe Management", icon='KEY_HLT')
-        sub.operator("bbutils.wipe_animation_data",       text="Wipe Animation Data",       icon='CANCEL')
-        sub.operator("bbutils.key_constraint_influences", text="Key Constraint Influences",  icon='CONSTRAINT')
-        sub.operator("bbutils.key_matching_channels",     text="Key Matching Channels",      icon='KEYINGSET')
-
-        sub = box.box()
-        sub.label(text="Baking", icon='RENDER_ANIMATION')
-        sub.operator("bbutils.bake_between_keyframes", text="Bake Between Keyframes", icon='KEY_HLT')
-
-        layout.separator(factor=1.0)
-        _draw_ezphyzi(layout, context)
-        layout.separator(factor=1.0)
-
-        box = layout.box()
-        box.label(text="NLA Management", icon='NLA')
-        row = box.row(align=True)
-        row.operator("bbutils.stash_all_actions",     text="Stash All",   icon='NLA')
-        row.operator("bbutils.delete_all_nla_tracks", text="Delete All",  icon='TRASH')
+        self.layout.operator("bbutils.tabhub_manager", text="Tab Hub", icon='WINDOW')
 
 
-class BBUTILS_PT_graph_editor_panel(Panel):
-    bl_label = "BBUtils"
-    bl_idname = "BBUTILS_PT_graph_editor_panel"
-    bl_space_type = 'GRAPH_EDITOR'
-    bl_region_type = 'UI'
-    bl_category = "BBUtils"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("bbutils.tabhub_manager", text="Tab Hub", icon='WINDOW')
-        layout.separator(factor=0.5)
-
-        box = layout.box()
-        box.label(text="F-Curve Tools", icon='FCURVE')
-        box.operator("bbutils.flip_fcurve", text="Flip F-Curve", icon='ARROW_LEFTRIGHT')
-        _draw_hint(box, "Flips selected curves + handles vertically")
-
-        layout.separator(factor=1.0)
-
-        box = layout.box()
-        box.label(text="Animation Tools", icon='ANIM')
-        box.operator("bbutils.wipe_animation_data",       text="Wipe Animation Data",      icon='CANCEL')
-        box.operator("bbutils.key_constraint_influences", text="Key Constraint Influences", icon='CONSTRAINT')
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  REGISTRATION
-# ─────────────────────────────────────────────────────────────────────────────
-
-class BBUTILS_PT_viewport_panel(Panel):
-    bl_label = "BBUtils"
+class BBUTILS_PT_viewport_panel(_BBUtilsParentPanel, Panel):
     bl_idname = "BBUTILS_PT_viewport_panel"
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "BBUtils"
+
+
+class BBUTILS_PT_dopesheet_panel(_BBUtilsParentPanel, Panel):
+    bl_idname = "BBUTILS_PT_dopesheet_panel"
+    bl_space_type = 'DOPESHEET_EDITOR'
+
+
+class BBUTILS_PT_graph_editor_panel(_BBUtilsParentPanel, Panel):
+    bl_idname = "BBUTILS_PT_graph_editor_panel"
+    bl_space_type = 'GRAPH_EDITOR'
+
+
+# (parent panel, short key, label, icon, draw function, start collapsed?)
+_SECTIONS = [
+    (BBUTILS_PT_viewport_panel, "v3d", [
+        ("constraints", "Constraints & Bones", 'CONSTRAINT_BONE',  _sec_constraints,   False),
+        ("shapes",      "Bone Shapes & Locks", 'MESH_DATA',        _sec_shapes,        False),
+        ("animation",   "Animation",           'ANIM',             _sec_animation,     False),
+        ("ezphyzi",     "EzPhyzi",             'PHYSICS',          None,               False),
+        ("nla",         "NLA Management",      'NLA',              _sec_nla,           False),
+        ("fcurves",     "F-Curve Tools",       'FCURVE',           _sec_fcurves,       False),
+        ("render",      "Batch Render",        'RENDER_ANIMATION', _sec_batch_render,  True),
+    ]),
+    (BBUTILS_PT_dopesheet_panel, "dope", [
+        ("keyframes",   "Keyframe Management", 'KEY_HLT',          _sec_keyframes,     False),
+        ("baking",      "Baking",              'RENDER_ANIMATION', _sec_baking,        False),
+        ("ezphyzi",     "EzPhyzi",             'PHYSICS',          None,               False),
+        ("nla",         "NLA Management",      'NLA',              _sec_nla,           False),
+    ]),
+    (BBUTILS_PT_graph_editor_panel, "graph", [
+        ("fcurves",     "F-Curve Tools",       'FCURVE',           _sec_fcurves,       False),
+        ("animation",   "Animation Tools",     'ANIM',             _sec_graph_animation, False),
+    ]),
+]
+
+
+def _make_section_panel(parent, short, order, key, label, icon, draw_fn, closed):
+    draw_fn = draw_fn or _draw_ezphyzi      # None marks the shared EzPhyzi UI
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon)
 
     def draw(self, context):
-        layout = self.layout
-        layout.operator("bbutils.tabhub_manager", text="Tab Hub", icon='WINDOW')
-        layout.separator(factor=0.5)
-        props = context.scene.bbutils_render_props
-        ctrl_props = context.scene.bbutils_controller_props
+        draw_fn(self.layout, context)
 
-        # ── Constraints & Bones ──────────────────────────────────────────────
-        layout.label(text="Constraints & Bones", icon='CONSTRAINT_BONE')
-        layout.operator("bbutils.apply_child_of_constraints",
-                        text="Apply Child Of Constraints", icon='BONE_DATA')
-        layout.operator("bbutils.connect_rigs",
-                        text="Connect Rigs", icon='LINKED')
-        _draw_hint(layout, "Select 2 rigs; the active (last selected) one is the target",
-                           "Copy Transforms on all bones with matching names")
-        layout.separator()
-        row = layout.row(align=True)
-        row.operator("bbutils.create_controller_bones", text="Create Controllers", icon='ADD')
-        row.operator("bbutils.remove_controller_bones", text="Remove Controllers", icon='REMOVE')
-        layout.prop(ctrl_props, "suffix")
-        layout.prop(ctrl_props, "hide_original")
-        layout.prop(ctrl_props, "color_controllers")
+    return type(f"BBUTILS_PT_{short}_{key}", (Panel,), {
+        "bl_idname": f"BBUTILS_PT_{short}_{key}",
+        "bl_label": label,
+        "bl_space_type": parent.bl_space_type,
+        "bl_region_type": 'UI',
+        "bl_category": "BBUtils",
+        "bl_parent_id": parent.bl_idname,
+        "bl_order": order,
+        "bl_options": {'DEFAULT_CLOSED'} if closed else set(),
+        "draw_header": draw_header,
+        "draw": draw,
+        "__module__": __name__,
+    })
 
-        layout.separator()
-        shape_props = context.scene.bbutils_shape_props
-        box = layout.box()
-        box.label(text="Bulk Custom Shape", icon='MESH_DATA')
-        box.prop(shape_props, "shape_preset")
-        if shape_props.shape_preset == 'CUSTOM':
-            box.prop(shape_props, "custom_shape_object", text="Object")
-        row = box.row(align=True)
-        row.operator("bbutils.set_custom_shape",   text="Set on Selected", icon='OUTLINER_OB_MESH')
-        row.operator("bbutils.reset_custom_shape", text="Reset",           icon='BONE_DATA')
-        _draw_hint(box, "Set: assigns the shape above to ALL selected bones",
-                        "Reset: clears shape and/or its transform")
 
-        layout.separator()
-        layout.operator("bbutils.unlock_channels", text="Unlock All Channels", icon='UNLOCKED')
-        _draw_hint(layout, "Clears Location/Rotation/Scale padlocks on selected bones")
+_SECTION_PANELS = [
+    _make_section_panel(parent, short, i, *sec)
+    for parent, short, sections in _SECTIONS
+    for i, sec in enumerate(sections)
+]
 
-        layout.separator(factor=1.5)
-
-        # ── Animation ────────────────────────────────────────────────────────
-        layout.label(text="Animation", icon='ANIM')
-        layout.operator("bbutils.wipe_animation_data",
-                        text="Wipe Animation Data", icon='CANCEL')
-        layout.operator("bbutils.key_constraint_influences",
-                        text="Key Constraint Influences", icon='CONSTRAINT')
-        layout.operator("bbutils.key_matching_channels",
-                        text="Key Matching Channels", icon='KEYINGSET')
-        layout.operator("bbutils.bake_between_keyframes",
-                        text="Bake Between Keyframes", icon='KEY_HLT')
-
-        layout.separator(factor=1.5)
-
-        # ── EzPhyzi ─────────────────────────────────────────────────────────
-        _draw_ezphyzi(layout, context)
-
-        layout.separator(factor=1.5)
-
-        # ── NLA ──────────────────────────────────────────────────────────────
-        layout.label(text="NLA Management", icon='NLA')
-        row = layout.row(align=True)
-        row.operator("bbutils.stash_all_actions",     text="Stash All",    icon='NLA')
-        row.operator("bbutils.delete_all_nla_tracks", text="Delete All",   icon='TRASH')
-
-        layout.separator(factor=1.5)
-
-        # ── F-Curves ─────────────────────────────────────────────────────────
-        layout.label(text="F-Curve Tools", icon='FCURVE')
-        layout.operator("bbutils.flip_fcurve", text="Flip F-Curve", icon='ARROW_LEFTRIGHT')
-
-        layout.separator(factor=1.5)
-
-        # ── Batch Render ─────────────────────────────────────────────────────
-        layout.label(text="Batch Render", icon='RENDER_ANIMATION')
-        layout.prop(props, "output_folder", text="")
-        layout.prop(props, "armature_object", text="Armature")
-        layout.prop(props, "camera_object",   text="Camera")
-        layout.prop(props, "action_filter",   text="Filter")
-
-        col = layout.column(align=True)
-        row = col.row(align=True)
-        row.prop(props, "resolution_x", text="X")
-        row.prop(props, "resolution_y", text="Y")
-        col.prop(props, "resolution_percentage", slider=True)
-
-        layout.prop(props, "use_custom_range")
-        if props.use_custom_range:
-            row = layout.row(align=True)
-            row.prop(props, "frame_start", text="Start")
-            row.prop(props, "frame_end",   text="End")
-
-        layout.separator(factor=0.5)
-        row = layout.row()
-        row.scale_y = 1.6
-        row.operator("bbutils.batch_viewport_render",
-                     text="Render All Actions", icon='RENDER_ANIMATION')
 
 classes = [
     BBUtilsHubEntry,
@@ -3592,9 +3592,10 @@ classes = [
     BBUTILS_OT_ezphyzi_bake,
     BBUTILS_OT_flip_fcurve,
     BBUTILS_OT_batch_viewport_render,
+    BBUTILS_PT_viewport_panel,
     BBUTILS_PT_dopesheet_panel,
     BBUTILS_PT_graph_editor_panel,
-    BBUTILS_PT_viewport_panel,
+    *_SECTION_PANELS,
 ]
 
 

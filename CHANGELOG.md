@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.25.0
+- Every BBUtils category is now a collapsible sub-panel in the 3D Viewport, Dope Sheet
+  and Graph Editor, just like panels in the Tab Hub. Blender remembers what you
+  collapsed, and you can reorder categories by dragging their handle.
+- New **Bone Shapes & Locks** category in the 3D Viewport (Bulk Custom Shape and
+  Unlock All Channels, split out of Constraints & Bones).
+
 ## 1.24.0
 - Tab Hub: panels copied into another editor always show up and stay collapsible.
   When the add-on itself hides a panel (for example it needs an active object), the
