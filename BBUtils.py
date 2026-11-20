@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 25, 0),
+    "version": (1, 26, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -2979,20 +2979,62 @@ def _hub_mode(cls, prefs):
     return ('clone', target)
 
 
-def _hub_bring_to_front(space, hub):
+def _tab_of(cls):
+    return getattr(cls, "bl_category", "") or "Misc"
+
+
+def _tabs_current(space):
+    """Tab names of an editor in the order BBUtils wants them:
+    saved order first, the hub tab next (if not placed by hand), then the rest
+    in their existing order."""
+    prefs = _hub_prefs()
+    cats = []
+    for c in _hub_all_panels():
+        if c.bl_space_type == space and not getattr(c, "bl_parent_id", ""):
+            name = _tab_of(c)
+            if name not in cats:
+                cats.append(name)
+    saved = []
+    if prefs is not None:
+        saved = [e.category for e in prefs.tab_order
+                 if e.space == space and e.category in cats]
+    rest = [c for c in cats if c not in saved]
+    hub = (prefs.hub_name.strip() or "Hub") if prefs is not None else "Hub"
+    if hub in rest:                       # hub stays on top unless moved
+        rest.remove(hub)
+        saved = [hub] + saved
+    return saved + rest
+
+
+def _tabs_apply(space):
     """Sidebar tabs appear in panel REGISTRATION order (bl_order does not
-    change it), and freshly re-registered hub panels end up last. Re-register
-    every other top-level panel of the editor so they queue up behind the hub,
-    keeping their relative order."""
+    change it). Re-register every top-level panel of the editor, tab by tab,
+    in the wanted order."""
     panels = _hub_all_panels()
-    others = [c for c in panels
-              if c.bl_space_type == space and not getattr(c, "bl_parent_id", "")
-              and getattr(c, "bl_category", "") != hub]
-    for cls in others:
-        try:
-            _hub_reregister(cls, lambda _c: None, panels)
-        except Exception as exc:
-            print(f"BBUtils Tab Hub: could not reorder {_hub_pid(cls)}: {exc}")
+    for cat in _tabs_current(space):
+        for cls in [c for c in panels
+                    if c.bl_space_type == space and not getattr(c, "bl_parent_id", "")
+                    and _tab_of(c) == cat]:
+            try:
+                _hub_reregister(cls, lambda _c: None, panels)
+            except Exception as exc:
+                print(f"BBUtils Tab Order: could not reorder {_hub_pid(cls)}: {exc}")
+        panels = _hub_all_panels()
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
+
+
+def _tabs_startup():
+    """Re-apply saved tab orders once other add-ons have registered."""
+    try:
+        prefs = _hub_prefs()
+        if prefs is not None:
+            for space in {e.space for e in prefs.tab_order}:
+                _tabs_apply(space)
+    except Exception as exc:
+        print(f"BBUtils Tab Order: {exc}")
+    return None
 
 
 def _hub_needs_move(cls, hub, order):
@@ -3057,7 +3099,7 @@ def _hub_apply():
         panels = _hub_all_panels()
 
     for space in changed_spaces:
-        _hub_bring_to_front(space, hub)
+        _tabs_apply(space)
 
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
@@ -3106,6 +3148,11 @@ def _hub_on_name(self, context):
     _hub_apply()
 
 
+class BBUtilsTabOrderEntry(PropertyGroup):
+    space: StringProperty(name="Editor")
+    category: StringProperty(name="Tab")
+
+
 class BBUtilsHubEntry(PropertyGroup):
     panel_id: StringProperty(name="Panel ID")
     label: StringProperty(name="Label")
@@ -3130,6 +3177,7 @@ class BBUtilsPreferences(AddonPreferences):
         update=_hub_on_name,
     )
     hub_entries: CollectionProperty(type=BBUtilsHubEntry)
+    tab_order: CollectionProperty(type=BBUtilsTabOrderEntry)
 
     def draw(self, context):
         layout = self.layout
@@ -3196,6 +3244,53 @@ class BBUTILS_OT_tabhub_move(Operator):
         return {'FINISHED'}
 
 
+class BBUTILS_OT_tab_order_move(Operator):
+    """Move this sidebar tab up / down / to the top"""
+    bl_idname = "bbutils.tab_order_move"
+    bl_label = "Move Sidebar Tab"
+
+    space: StringProperty()
+    category: StringProperty()
+    direction: EnumProperty(items=[('UP', "Up", ""), ('DOWN', "Down", ""),
+                                   ('TOP', "Top", ""), ('BOTTOM', "Bottom", "")])
+
+    def execute(self, context):
+        prefs = _hub_prefs()
+        order = _tabs_current(self.space)
+        if self.category not in order:
+            return {'CANCELLED'}
+        i = order.index(self.category)
+        order.pop(i)
+        new = {'UP': max(0, i - 1), 'DOWN': min(len(order), i + 1),
+               'TOP': 0, 'BOTTOM': len(order)}[self.direction]
+        order.insert(new, self.category)
+        for j in reversed(range(len(prefs.tab_order))):     # save full order
+            if prefs.tab_order[j].space == self.space:
+                prefs.tab_order.remove(j)
+        for cat in order:
+            e = prefs.tab_order.add()
+            e.space, e.category = self.space, cat
+        _tabs_apply(self.space)
+        context.preferences.is_dirty = True
+        return {'FINISHED'}
+
+
+class BBUTILS_OT_tab_order_reset(Operator):
+    """Forget the custom tab order of this editor (applies fully after a restart)"""
+    bl_idname = "bbutils.tab_order_reset"
+    bl_label = "Reset Tab Order"
+
+    space: StringProperty()
+
+    def execute(self, context):
+        prefs = _hub_prefs()
+        for j in reversed(range(len(prefs.tab_order))):
+            if prefs.tab_order[j].space == self.space:
+                prefs.tab_order.remove(j)
+        context.preferences.is_dirty = True
+        return {'FINISHED'}
+
+
 class BBUTILS_OT_tabhub_manager(Operator):
     """Pick panels and sections of other add-ons to collect into one tab"""
     bl_idname = "bbutils.tabhub_manager"
@@ -3203,6 +3298,7 @@ class BBUTILS_OT_tabhub_manager(Operator):
 
     space: EnumProperty(name="Editor", items=_HUB_SPACES)
     search: StringProperty(name="Search", options={'TEXTEDIT_UPDATE'})
+    show_order: BoolProperty(name="Tab Order", default=True)
 
     def invoke(self, context, event):
         area = context.area.type if context.area else 'VIEW_3D'
@@ -3244,6 +3340,28 @@ class BBUTILS_OT_tabhub_manager(Operator):
         row = layout.row(align=True)
         row.label(text="Browse:")
         row.prop(self, "space", text="")
+        # (layout.panel() bodies are not clickable inside a dialog, so the
+        # section is folded with a plain toggle instead)
+        layout.prop(self, "show_order", text="Tab Order", emboss=False,
+                    icon='DOWNARROW_HLT' if self.show_order else 'RIGHTARROW')
+        body = layout
+        if self.show_order:
+            names = {k: n for k, n, _ in _HUB_SPACES}
+            row = body.row()
+            row.label(text=f"Sidebar tabs in {names.get(self.space, self.space)}, top first:")
+            op = row.operator("bbutils.tab_order_reset", text="", icon='LOOP_BACK')
+            op.space = self.space
+            col = body.box().column(align=True)
+            for cat in _tabs_current(self.space):
+                r = col.row(align=True)
+                r.label(text=cat)
+                for icon, d in (('TRIA_UP_BAR', 'TOP'), ('TRIA_UP', 'UP'),
+                                ('TRIA_DOWN', 'DOWN')):
+                    op = r.operator("bbutils.tab_order_move", text="", icon=icon)
+                    op.space, op.category, op.direction = self.space, cat, d
+            if self.space == 'VIEW_3D':
+                _draw_hint(body, "Item always stays first - it is built into Blender")
+
         layout.prop(self, "search", text="", icon='VIEWZOOM')
 
         panels = [c for c in _hub_all_panels()
@@ -3562,10 +3680,13 @@ _SECTION_PANELS = [
 
 
 classes = [
+    BBUtilsTabOrderEntry,
     BBUtilsHubEntry,
     BBUtilsPreferences,
     BBUTILS_OT_tabhub_toggle,
     BBUTILS_OT_tabhub_move,
+    BBUTILS_OT_tab_order_move,
+    BBUTILS_OT_tab_order_reset,
     BBUTILS_OT_tabhub_manager,
     BBUtilsBatchRenderProperties,
     BBUtilsControllerProperties,
@@ -3613,11 +3734,14 @@ def register():
     bpy.app.handlers.load_pre.append(_ez_on_load_pre)
     # give other add-ons a moment to register, then keep the hub in sync
     bpy.app.timers.register(_hub_watchdog, first_interval=1.0, persistent=True)
+    bpy.app.timers.register(_tabs_startup, first_interval=1.5)
 
 
 def unregister():
     if bpy.app.timers.is_registered(_hub_watchdog):
         bpy.app.timers.unregister(_hub_watchdog)
+    if bpy.app.timers.is_registered(_tabs_startup):
+        bpy.app.timers.unregister(_tabs_startup)
     _hub_restore_all()
     _ez_preview_off()
     if _ez_on_load_pre in bpy.app.handlers.load_pre:

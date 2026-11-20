@@ -131,6 +131,10 @@ Tab Hub lets you pick the panels you actually use and moves them into one tab.
 - Your choices are saved in the add-on preferences. A small watchdog re-applies them when other add-ons register or reload their panels.
 - It works in the 3D Viewport, Dope Sheet, Graph Editor, NLA, Node, Image, Sequencer, Clip and Text editors.
 
+### Tab Order
+
+The **Tab Order** section of the same dialog lists every sidebar tab of the chosen editor. Use the arrows to move a tab up, down or to the top, for example to bring BBUtils up from the bottom of the strip. The order is saved in the add-on preferences and re-applied on startup. The ↺ button forgets it. (In the 3D Viewport **Item** always stays first, because it is built into Blender.)
+
 > Tip: Blender can also show a single panel on every tab without any add-on. Right-click the panel header and choose **Pin**.
 
 ---

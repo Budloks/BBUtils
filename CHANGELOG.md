@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.0
+- **Tab Order**: a new section in the Tab Hub dialog reorders the sidebar tabs of any
+  editor (up / down / to the top), e.g. to move BBUtils from the bottom of the
+  3D Viewport tab strip to the top. The order is saved in the preferences and
+  re-applied on startup.
+
 ## 1.25.0
 - Every BBUtils category is now a collapsible sub-panel in the 3D Viewport, Dope Sheet
   and Graph Editor, just like panels in the Tab Hub. Blender remembers what you
