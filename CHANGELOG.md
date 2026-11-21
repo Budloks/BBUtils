@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.26.1
+- EzPhyzi: the preview now also finds the mesh when it hangs on a different bone that
+  follows the picked one (bone children, Copy Transforms, or a lone Child Of), e.g. a
+  control bone `MagBetter` driving a deform bone `Mag` with the magazine and bullets.
+
 ## 1.26.0
 - **Tab Order**: a new section in the Tab Hub dialog reorders the sidebar tabs of any
   editor (up / down / to the top), e.g. to move BBUtils from the bottom of the

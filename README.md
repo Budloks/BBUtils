@@ -106,7 +106,9 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 
 EzPhyzi finds the geometry that belongs to the bone in any of these setups:
 bone → mesh, bone → empty → … → mesh, objects using Child Of / Copy Transforms on the bone,
-and mesh parts skinned to the bone (vertex group weight ≥ 0.5).
+and mesh parts skinned to the bone (vertex group weight ≥ 0.5). The same goes for bones
+that follow the picked bone (its child bones, or bones that copy it with Copy Transforms),
+so a control bone that drives the real mag bone works too.
 
 <br clear="right">
 

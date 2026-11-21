@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 26, 0),
+    "version": (1, 26, 1),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -1887,17 +1887,46 @@ def _ez_fps(scene):
     return scene.render.fps / (scene.render.fps_base or 1.0)
 
 
-def _ez_bound_objects(arm, bone_name):
-    """Meshes that move rigidly with the bone, at any depth:
+def _ez_follower_bones(arm, bone_name):
+    """The bone plus every bone of the rig that moves rigidly with it:
+    bone children, and bones that copy it (Copy Transforms, or a Child Of
+    that is their only constraint), at any depth. Covers the common
+    "control bone -> deform bone -> mesh" setup."""
+    bones = arm.pose.bones
+    follow = {bone_name}
+    changed = True
+    while changed:
+        changed = False
+        for pb in bones:
+            if pb.name in follow:
+                continue
+            if pb.parent is not None and pb.parent.name in follow:
+                hit = True
+            else:
+                active = [c for c in pb.constraints if not c.mute and c.influence > 0.0]
+                hit = any(
+                    getattr(c, "target", None) == arm
+                    and getattr(c, "subtarget", "") in follow
+                    and (c.type == 'COPY_TRANSFORMS'
+                         or (c.type == 'CHILD_OF' and len(active) == 1))
+                    for c in active)
+            if hit:
+                follow.add(pb.name)
+                changed = True
+    return follow
+
+
+def _ez_bound_objects(arm, bones):
+    """Meshes that move rigidly with any of `bones`, at any depth:
     bone -> (empty ->)* mesh via bone parenting, or via a Child Of /
     Copy Transforms constraint that targets the bone."""
     roots = []
     for o in bpy.context.scene.objects:
-        if o.parent == arm and o.parent_type == 'BONE' and o.parent_bone == bone_name:
+        if o.parent == arm and o.parent_type == 'BONE' and o.parent_bone in bones:
             roots.append(o)
         elif any(c.type in {'CHILD_OF', 'COPY_TRANSFORMS'} and not c.mute
                  and c.influence > 0.0 and c.target == arm
-                 and getattr(c, "subtarget", "") == bone_name
+                 and getattr(c, "subtarget", "") in bones
                  for c in o.constraints):
             roots.append(o)
     meshes, seen, stack = [], set(), roots
@@ -1912,12 +1941,13 @@ def _ez_bound_objects(arm, bone_name):
     return meshes
 
 
-def _ez_skinned_objects(arm, bone_name, exclude):
-    """Meshes deformed by the armature that have a vertex group for the bone
-    (only the vertices weighted to it are used for the ghost)."""
+def _ez_skinned_objects(arm, bones, exclude):
+    """Meshes deformed by the armature that have a vertex group for one of
+    `bones` (only the vertices weighted to those bones are used)."""
     out = []
     for o in bpy.context.scene.objects:
-        if (o.type == 'MESH' and o not in exclude and bone_name in o.vertex_groups
+        if (o.type == 'MESH' and o not in exclude
+                and any(b in o.vertex_groups for b in bones)
                 and any(m.type == 'ARMATURE' and m.object == arm for m in o.modifiers)):
             out.append(o)
     return out
@@ -1971,7 +2001,8 @@ def _ez_collect_ghost(arm_eval, bone_name, bone_world, depsgraph):
     inv = bone_world.inverted_safe()
     arm = arm_eval.original
     acc = ([], [], [], [])
-    rigid = _ez_bound_objects(arm, bone_name)
+    bones = _ez_follower_bones(arm, bone_name)
+    rigid = _ez_bound_objects(arm, bones)
     for obj in rigid:
         ce = obj.evaluated_get(depsgraph)
         mesh = ce.to_mesh()
@@ -1979,10 +2010,10 @@ def _ez_collect_ghost(arm_eval, bone_name, bone_world, depsgraph):
             _ez_add_geometry(acc, mesh, inv @ ce.matrix_world)
         finally:
             ce.to_mesh_clear()
-    for obj in _ez_skinned_objects(arm, bone_name, rigid):
-        gi = obj.vertex_groups[bone_name].index
+    for obj in _ez_skinned_objects(arm, bones, rigid):
+        gis = {obj.vertex_groups[b].index for b in bones if b in obj.vertex_groups}
         keep = {v.index for v in obj.data.vertices
-                for g in v.groups if g.group == gi and g.weight >= 0.5}
+                if sum(g.weight for g in v.groups if g.group in gis) >= 0.5}
         if not keep:
             continue
         ce = obj.evaluated_get(depsgraph)
