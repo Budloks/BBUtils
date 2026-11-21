@@ -547,6 +547,20 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
         name="Ghost Every", description="Draw a ghost of the mesh every N frames",
         default=5, min=1, max=100, update=_ezphyzi_on_sim,
     )
+    clean_curves: BoolProperty(
+        name="Clean Curves",
+        description="Bake only the keys the flight really needs, as Bezier curves "
+                    "with aligned handles (a plain throw ends up with 2-3 keys "
+                    "per channel). Off: one key per frame",
+        default=True,
+    )
+    clean_tolerance: FloatProperty(
+        name="Tolerance",
+        description="How far the clean curve may drift from the simulation, as a "
+                    "fraction of each channel's range. Higher = fewer keys",
+        default=0.005, min=0.0001, soft_max=0.05, max=0.5,
+        precision=4, step=0.05, subtype='FACTOR',
+    )
     key_constraints_off: BoolProperty(
         name="Disable Bone Constraints",
         description="Key the bone's constraint influences to 0 from the release frame",
@@ -2510,9 +2524,106 @@ class BBUTILS_OT_ezphyzi_resample(Operator):
         return {'FINISHED'}
 
 
+def _ez_fit_keys(v, tol):
+    """Pick the fewest frames (indices into `v`) whose cubic Hermite / Bezier
+    curve stays within `tol` of every sample. Returns (keys, slopes) where
+    slopes[i] = (left, right) derivative per frame at each kept key."""
+    n = len(v)
+    if n < 3:
+        return list(range(n)), {i: (0.0, 0.0) for i in range(n)}
+
+    def d_left(i):
+        if i >= 2:
+            return (3 * v[i] - 4 * v[i - 1] + v[i - 2]) / 2.0
+        return v[i] - v[i - 1] if i >= 1 else None
+
+    def d_right(i):
+        if i <= n - 3:
+            return (-3 * v[i] + 4 * v[i + 1] - v[i + 2]) / 2.0
+        return v[i + 1] - v[i] if i <= n - 2 else None
+
+    span = (max(v) - min(v)) or 1.0
+    kinks = set()                                   # bounces / sudden stops
+    for i in range(2, n - 2):
+        dl, dr = d_left(i), d_right(i)
+        if abs(dl - dr) > 0.25 * max(abs(dl), abs(dr)) + 0.02 * span:
+            kinks.add(i)
+
+    def slopes(i):
+        if i in kinks:
+            return d_left(i), d_right(i)
+        if i == 0:
+            d = d_right(0)
+        elif i == n - 1:
+            d = d_left(n - 1)
+        else:
+            d = (v[i + 1] - v[i - 1]) / 2.0          # exact for a parabola
+        return d, d
+
+    def worst(a, b):
+        h = b - a
+        sa, sb = slopes(a)[1], slopes(b)[0]
+        err, at = 0.0, None
+        for i in range(a + 1, b):
+            t = (i - a) / h
+            t2, t3 = t * t, t * t * t
+            y = ((2 * t3 - 3 * t2 + 1) * v[a] + (t3 - 2 * t2 + t) * h * sa
+                 + (-2 * t3 + 3 * t2) * v[b] + (t3 - t2) * h * sb)
+            e = abs(y - v[i])
+            if e > err:
+                err, at = e, i
+        return err, at
+
+    keys = sorted({0, n - 1} | kinks)
+    stack = list(zip(keys, keys[1:]))
+    while stack:
+        a, b = stack.pop()
+        err, at = worst(a, b)
+        if at is not None and err > tol:
+            keys.append(at)
+            stack += [(a, at), (at, b)]
+    keys = sorted(set(keys))
+    return keys, {i: slopes(i) for i in keys}
+
+
+def _ez_clean_fcurve(fc, start, end, tol_factor, key_type):
+    """Replace the per-frame keys of `fc` in [start, end] with a fitted Bezier
+    curve. Keys outside the range are left alone."""
+    v = [fc.evaluate(f) for f in range(start, end + 1)]
+    tol = max(1e-6, tol_factor * (max(v) - min(v)))
+    keys, slope = _ez_fit_keys(v, tol)
+    keep = {start + i for i in keys}
+    for kp in reversed(list(fc.keyframe_points)):
+        f = round(kp.co[0])
+        if start <= f <= end and f not in keep:
+            fc.keyframe_points.remove(kp, fast=True)
+    fc.update()
+
+    pts = sorted(fc.keyframe_points, key=lambda k: k.co[0])
+    frames = [k.co[0] for k in pts]
+    for idx, kp in enumerate(pts):
+        f = round(kp.co[0])
+        if not (start <= f <= end):
+            continue
+        i = f - start
+        sl, sr = slope[i]
+        dl = (frames[idx] - frames[idx - 1]) / 3.0 if idx > 0 else 1.0
+        dr = (frames[idx + 1] - frames[idx]) / 3.0 if idx < len(pts) - 1 else 1.0
+        kink = abs(sl - sr) > 1e-9
+        kp.interpolation = 'BEZIER'
+        kp.type = key_type
+        kp.handle_left_type = kp.handle_right_type = 'FREE' if kink or f == start else 'ALIGNED'
+        y = kp.co[1]
+        kp.handle_left = (kp.co[0] - dl, y - sl * dl)
+        kp.handle_right = (kp.co[0] + dr, y + sr * dr)
+        if f == start:              # keep the hand's motion leading into it
+            kp.handle_right_type = 'ALIGNED'
+    return len(keep)
+
+
 class BBUTILS_OT_ezphyzi_bake(Operator):
-    """Bake the previewed flight onto the bone (one key per frame,
-    from the release frame on) and turn its constraints off after release"""
+    """Bake the previewed flight onto the bone from the release frame on
+    (clean Bezier keys or one key per frame) and turn its constraints off"""
     bl_idname = "bbutils.ezphyzi_bake"
     bl_label = "Bake EzPhyzi"
     bl_options = {'REGISTER', 'UNDO'}
@@ -2588,12 +2699,24 @@ class BBUTILS_OT_ezphyzi_bake(Operator):
                     pb.keyframe_insert("scale", frame=f, keytype=kt)
                 else:
                     pb.scale = anim_scale
+            n_keys = None
+            if p.clean_curves and arm.animation_data and arm.animation_data.action:
+                base = f'pose.bones["{pb.name}"].'
+                paths = {base + n for n in ("location", "rotation_quaternion",
+                                            "rotation_euler", "rotation_axis_angle",
+                                            "scale")}
+                counts = [
+                    _ez_clean_fcurve(fc, start, end, p.clean_tolerance, kt)
+                    for fc in _get_action_fcurves(arm.animation_data.action, arm)
+                    if fc.data_path in paths]
+                n_keys = max(counts) if counts else None
         finally:
             scene.frame_set(original)
 
         _ez_preview_off(context)
+        extra = f", up to {n_keys} keys per channel" if n_keys else ""
         self.report({'INFO'}, f"EzPhyzi baked on '{pb.name}', "
-                              f"frames {start}–{end}")
+                              f"frames {start}–{end}{extra}")
         _redraw(context, {'VIEW_3D', 'DOPESHEET_EDITOR', 'GRAPH_EDITOR'})
         return {'FINISHED'}
 
@@ -3649,6 +3772,11 @@ def _draw_ezphyzi(layout, context):
     box.separator(factor=0.5)
     col = box.column()
     col.prop(mp, "key_type")
+    row = col.row(align=True)
+    row.prop(mp, "clean_curves")
+    sub = row.row(align=True)
+    sub.active = mp.clean_curves
+    sub.prop(mp, "clean_tolerance", text="")
     col.prop(mp, "key_constraints_off")
     row = box.row()
     row.scale_y = 1.4

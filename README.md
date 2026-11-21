@@ -71,7 +71,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 - **Start velocity and spin come from your animation.** EzPhyzi measures how the bone moves between the frame before release and the release frame. A flick of the hand becomes the throw.
 - **The simulation is cheap,** so the overlay updates live while you drag a slider.
 - **The preview follows the rig.** Move the bone on the start frame, or edit its keys, and the throw re-simulates by itself.
-- **The bake keys the bone directly** in pose space, one key per frame. Euler and quaternion rotations are kept continuous, so there are no 360° flips, and the bone's constraints are keyed to influence 0 from the release frame.
+- **The bake keys the bone directly** in pose space. With **Clean Curves** (default) it keeps only the keys the flight needs, as Bezier curves with aligned handles: a parabola is exactly one Bezier segment, so a plain throw gets 2 location keys per axis and a handful of rotation keys. Turn it off to get one key per frame. Euler and quaternion rotations are kept continuous, so there are no 360° flips, and the bone's constraints are keyed to influence 0 from the release frame.
 
 ### Preview
 
@@ -102,6 +102,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 | Extra Push / Extra Spin | Extra velocity / angular velocity at release, in bone-local axes |
 | Air Drag / Spin Damping | Damping per second |
 | Floor, Bounce, Friction | Optional floor plane with restitution and sliding friction |
+| Clean Curves, Tolerance | Bake as few Bezier keys as possible with aligned handles. Tolerance is how far the curve may drift from the simulation, as a fraction of each channel's range (higher = fewer keys). |
 | Key Type | Keyframe type of the baked keys (**Jitter** by default, also Generated, Breakdown, …) |
 
 EzPhyzi finds the geometry that belongs to the bone in any of these setups:

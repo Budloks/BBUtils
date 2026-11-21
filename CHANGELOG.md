@@ -1,6 +1,11 @@
 # Changelog
 
 ## 1.27.0
+- EzPhyzi **Clean Curves** (on by default): the bake keeps only the keys the flight
+  needs, as Bezier curves with aligned handles. A plain throw gives 2 location keys per
+  axis and a few rotation keys instead of one key per frame. **Tolerance** sets how far
+  the curve may drift from the simulation (fraction of each channel's range); bounces get
+  their own keys with broken handles.
 - EzPhyzi: **End Frame** replaces the "Frames" count. It sits right under Start Frame with
   its own "current frame" button, and moves along when the start frame passes it.
 - **Cleaner Tab Hub dialog**: two pages (Collect Panels / Tab Order) instead of one long
