@@ -3,6 +3,10 @@
 ## 1.27.0
 - EzPhyzi: **End Frame** replaces the "Frames" count. It sits right under Start Frame with
   its own "current frame" button, and moves along when the start frame passes it.
+- **Cleaner Tab Hub dialog**: two pages (Collect Panels / Tab Order) instead of one long
+  list. Tabs are folded by default and show how many of their panels are in the hub, the
+  hub's own contents sit in one box at the top, and built-in panels are labelled "Blender".
+- Hints under buttons are dimmed, and the EzPhyzi frame fields form one aligned block.
 
 ## 1.26.1
 - EzPhyzi: the preview now also finds the mesh when it hangs on a different bone that

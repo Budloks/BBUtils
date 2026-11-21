@@ -125,7 +125,7 @@ Tab Hub lets you pick the panels you actually use and moves them into one tab.
   <img src="docs/images/tabhub-sidebar.jpg" alt="The Hub tab right under Item, holding a panel from another add-on" width="200">
 </p>
 
-- Click **Tab Hub** at the top of any BBUtils panel. You get a list of every tab in that editor, with its panels and their **sections**.
+- Click **Tab Hub** at the top of any BBUtils panel. The **Collect Panels** page lists every tab in that editor; unfold a tab to see its panels and their **sections**.
 - Tick a **panel** to move it with all of its sections, or tick just one **section**. The section is lifted out of its parent and becomes its own panel in the hub.
 - The hub tab sits right under **Item**, at the top of the strip, and the other tabs keep their order.
 - **Hub In** chooses the editor that holds the hub. Set it to *Dope Sheet* and you can collect panels from the 3D Viewport (or any other editor) right next to your keys. Panels from other editors are copied there, so the originals stay in their tabs. A copied panel runs its add-on's own code in the new editor; most work, but a panel that relies on 3D-viewport-only context may not.
@@ -135,7 +135,7 @@ Tab Hub lets you pick the panels you actually use and moves them into one tab.
 
 ### Tab Order
 
-The **Tab Order** section of the same dialog lists every sidebar tab of the chosen editor. Use the arrows to move a tab up, down or to the top, for example to bring BBUtils up from the bottom of the strip. The order is saved in the add-on preferences and re-applied on startup. The ↺ button forgets it. (In the 3D Viewport **Item** always stays first, because it is built into Blender.)
+The **Tab Order** page of the same dialog lists every sidebar tab of the chosen editor. Use the arrows to move a tab up, down or to the top, for example to bring BBUtils up from the bottom of the strip. The order is saved in the add-on preferences and re-applied on startup. The ↺ button forgets it. (In the 3D Viewport **Item** always stays first, because it is built into Blender.)
 
 > Tip: Blender can also show a single panel on every tab without any add-on. Right-click the panel header and choose **Pin**.
 

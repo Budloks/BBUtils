@@ -58,7 +58,8 @@ def _ensure_animation_data(obj):
 def _draw_hint(layout, *lines):
     """Render small subdued hint lines under a button."""
     col = layout.column(align=False)
-    col.scale_y = 0.65
+    col.scale_y = 0.7
+    col.active = False
     for line in lines:
         col.label(text=line, icon='NONE')
 
@@ -3342,107 +3343,153 @@ class BBUTILS_OT_tab_order_reset(Operator):
         return {'FINISHED'}
 
 
+_hub_open_tabs = set()      # tabs unfolded in the Tab Hub dialog (this session)
+
+
+class BBUTILS_OT_tabhub_fold(Operator):
+    """Show or hide the panels of this tab"""
+    bl_idname = "bbutils.tabhub_fold"
+    bl_label = "Show / Hide Panels"
+    bl_options = {'INTERNAL'}
+
+    key: StringProperty()
+
+    def execute(self, context):
+        _hub_open_tabs.symmetric_difference_update({self.key})
+        return {'FINISHED'}
+
+
+def _hub_addon_name(cls):
+    mod = cls.__module__
+    if mod.startswith("bl_ui") or mod.split(".")[0] in {"bpy", "bl_operators"}:
+        return "Blender"
+    return mod.split(".")[-1]
+
+
+def _split_row(layout, label, factor=0.28):
+    split = layout.split(factor=factor, align=True)
+    split.label(text=label)
+    return split
+
+
 class BBUTILS_OT_tabhub_manager(Operator):
-    """Pick panels and sections of other add-ons to collect into one tab"""
+    """Pick panels and sections of other add-ons to collect into one tab,
+    and reorder the sidebar tabs"""
     bl_idname = "bbutils.tabhub_manager"
     bl_label = "Tab Hub"
 
-    space: EnumProperty(name="Editor", items=_HUB_SPACES)
+    page: EnumProperty(name="Page", items=[
+        ('COLLECT', "Collect Panels", "Gather panels and sections of other add-ons in one tab", 'PINNED', 0),
+        ('ORDER', "Tab Order", "Change the order of the sidebar tabs", 'SORTSIZE', 1),
+    ])
+    space: EnumProperty(name="Editor", items=_HUB_SPACES,
+                        description="Editor whose sidebar tabs are listed")
     search: StringProperty(name="Search", options={'TEXTEDIT_UPDATE'})
-    show_order: BoolProperty(name="Tab Order", default=True)
 
     def invoke(self, context, event):
         area = context.area.type if context.area else 'VIEW_3D'
         if area in {k for k, _, _ in _HUB_SPACES}:
             self.space = area
-        return context.window_manager.invoke_props_dialog(self, width=560)
+        return context.window_manager.invoke_props_dialog(self, width=440)
 
     def execute(self, context):
         return {'FINISHED'}
 
-    def _row(self, layout, cls, hubbed, indent):
-        pid = _hub_pid(cls)
-        row = layout.row(align=True)
-        if indent:
-            row.separator(factor=2.5 * indent)
-        on = pid in hubbed
-        op = row.operator("bbutils.tabhub_toggle", text="",
-                          icon='CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT', emboss=False)
-        op.panel_id = pid
-        label = _hub_label(cls)
-        row.label(text=label if not indent else f"{label}  (section)")
-        addon = cls.__module__.split(".")[-1]
-        sub = row.row()
-        sub.alignment = 'RIGHT'
-        sub.enabled = False
-        sub.label(text=addon)
-
+    # ── pages ───────────────────────────────────────────────────────────────
     def draw(self, context):
         layout = self.layout
         prefs = _hub_prefs()
         if prefs is None:
             layout.label(text="BBUtils preferences not available", icon='ERROR')
             return
-        hubbed = {e.panel_id for e in prefs.hub_entries}
+        row = layout.row()
+        row.scale_y = 1.25
+        row.prop(self, "page", expand=True)
+        layout.separator(factor=0.3)
+        if self.page == 'ORDER':
+            self._draw_order(layout)
+        else:
+            self._draw_collect(layout, prefs)
 
-        row = layout.row(align=True)
-        row.prop(prefs, "hub_name", text="Tab")
-        row.prop(prefs, "hub_space", text="In")
-        row = layout.row(align=True)
-        row.label(text="Browse:")
-        row.prop(self, "space", text="")
-        # (layout.panel() bodies are not clickable inside a dialog, so the
-        # section is folded with a plain toggle instead)
-        layout.prop(self, "show_order", text="Tab Order", emboss=False,
-                    icon='DOWNARROW_HLT' if self.show_order else 'RIGHTARROW')
-        body = layout
-        if self.show_order:
-            names = {k: n for k, n, _ in _HUB_SPACES}
-            row = body.row()
-            row.label(text=f"Sidebar tabs in {names.get(self.space, self.space)}, top first:")
-            op = row.operator("bbutils.tab_order_reset", text="", icon='LOOP_BACK')
-            op.space = self.space
-            col = body.box().column(align=True)
-            for cat in _tabs_current(self.space):
-                r = col.row(align=True)
-                r.label(text=cat)
-                for icon, d in (('TRIA_UP_BAR', 'TOP'), ('TRIA_UP', 'UP'),
-                                ('TRIA_DOWN', 'DOWN')):
-                    op = r.operator("bbutils.tab_order_move", text="", icon=icon)
-                    op.space, op.category, op.direction = self.space, cat, d
-            if self.space == 'VIEW_3D':
-                _draw_hint(body, "Item always stays first - it is built into Blender")
+    def _draw_order(self, layout):
+        _split_row(layout, "Editor").prop(self, "space", text="")
+        layout.separator(factor=0.3)
+        box = layout.box()
+        row = box.row()
+        row.label(text="Sidebar tabs, top to bottom")
+        row = row.row()
+        row.alignment = 'RIGHT'
+        op = row.operator("bbutils.tab_order_reset", text="Reset", icon='LOOP_BACK',
+                          emboss=False)
+        op.space = self.space
+        col = box.column(align=True)
+        order = _tabs_current(self.space)
+        for i, cat in enumerate(order):
+            r = col.row(align=True)
+            num = r.row()
+            num.active = False
+            num.ui_units_x = 1.2
+            num.label(text=f"{i + 1}")
+            r.label(text=cat)
+            btns = r.row(align=True)
+            for icon, d, ok in (('TRIA_UP_BAR', 'TOP', i > 0), ('TRIA_UP', 'UP', i > 0),
+                                ('TRIA_DOWN', 'DOWN', i < len(order) - 1)):
+                b = btns.row(align=True)
+                b.enabled = ok
+                op = b.operator("bbutils.tab_order_move", text="", icon=icon)
+                op.space, op.category, op.direction = self.space, cat, d
+        if self.space == 'VIEW_3D':
+            _draw_hint(layout, "Item always stays first - it is built into Blender.")
 
-        layout.prop(self, "search", text="", icon='VIEWZOOM')
-
+    def _draw_collect(self, layout, prefs):
+        names = {k: n for k, n, _ in _HUB_SPACES}
         panels = [c for c in _hub_all_panels()
                   if c.bl_space_type == self.space and not _hub_is_ours(c)]
         by_id = {_hub_pid(c): c for c in panels}
+        hubbed = {e.panel_id for e in prefs.hub_entries}
 
-        # ── panels already in the hub, in hub order ──
+        # ── the hub itself: name, editor, contents ──
+        box = layout.box()
+        col = box.column()
+        _split_row(col, "Hub tab").prop(prefs, "hub_name", text="")
+        _split_row(col, "Shown in").prop(prefs, "hub_space", text="")
         if prefs.hub_space == 'SAME':
             in_hub = [e for e in prefs.hub_entries if e.space == self.space]
         else:
             in_hub = list(prefs.hub_entries)
-        names = {k: n for k, n, _ in _HUB_SPACES}
-        if in_hub:
-            box = layout.box()
-            box.label(text=f"In '{prefs.hub_name}'", icon='PINNED')
-            for e in in_hub:
-                r = box.row(align=True)
-                op = r.operator("bbutils.tabhub_toggle", text="", icon='X', emboss=False)
-                op.panel_id = e.panel_id
+        box.separator(factor=0.2)
+        if not in_hub:
+            _draw_hint(box, "Empty - tick panels below to add them.")
+        else:
+            lst = box.column(align=True)
+            for i, e in enumerate(in_hub):
+                r = lst.row(align=True)
                 live = by_id.get(e.panel_id) or _hub_find(e.panel_id)
-                text = _hub_label(live) if live else f"{e.label} (not loaded)"
+                r.label(text=_hub_label(live) if live else f"{e.label} (not loaded)",
+                        icon='GRIP')
                 if e.space != self.space:
-                    text += f"   [{names.get(e.space, e.space)}]"
-                r.label(text=text)
-                op = r.operator("bbutils.tabhub_move", text="", icon='TRIA_UP')
+                    tag = r.row()
+                    tag.active = False
+                    tag.alignment = 'RIGHT'
+                    tag.label(text=names.get(e.space, e.space))
+                btns = r.row(align=True)
+                b = btns.row(align=True)
+                b.enabled = i > 0
+                op = b.operator("bbutils.tabhub_move", text="", icon='TRIA_UP')
                 op.panel_id, op.direction = e.panel_id, -1
-                op = r.operator("bbutils.tabhub_move", text="", icon='TRIA_DOWN')
+                b = btns.row(align=True)
+                b.enabled = i < len(in_hub) - 1
+                op = b.operator("bbutils.tabhub_move", text="", icon='TRIA_DOWN')
                 op.panel_id, op.direction = e.panel_id, 1
+                op = btns.operator("bbutils.tabhub_toggle", text="", icon='X')
+                op.panel_id = e.panel_id
 
-        # ── every tab with its panels and sections ──
+        # ── browse: editor + search ──
+        layout.separator(factor=0.5)
+        row = layout.row(align=True)
+        row.prop(self, "space", text="")
+        row.prop(self, "search", text="", icon='VIEWZOOM')
+
         def original_parent(c):
             pid = _hub_pid(c)
             if pid in _hub_orig:
@@ -3452,7 +3499,6 @@ class BBUTILS_OT_tabhub_manager(Operator):
         children = {}
         for c in panels:
             children.setdefault(original_parent(c), []).append(c)
-
         tabs = {}
         for c in children.get("", []):
             tabs.setdefault(_hub_original_category(c), []).append(c)
@@ -3465,20 +3511,69 @@ class BBUTILS_OT_tabhub_manager(Operator):
             hay = f"{getattr(c, 'bl_label', '')} {cat} {c.__module__}".lower()
             return needle in hay or any(matches(k, cat) for k in children.get(_hub_pid(c), []))
 
+        def family(c):
+            out = [c]
+            for k in children.get(_hub_pid(c), []):
+                out += family(k)
+            return out
+
         col = layout.column(align=True)
+        shown = 0
         for cat in sorted(tabs, key=str.lower):
             tops = [c for c in tabs[cat] if matches(c, cat)]
             if not tops:
                 continue
-            box = col.box()
-            box.label(text=cat, icon='MENU_PANEL')
+            shown += 1
+            every = [k for c in tops for k in family(c)]
+            picked = sum(_hub_pid(k) in hubbed for k in every)
+            addons = {_hub_addon_name(k) for k in every}
+            key = f"{self.space}:{cat}"
+            is_open = bool(needle) or key in _hub_open_tabs
+
+            head = col.row(align=True)
+            left = head.row(align=True)
+            left.alignment = 'LEFT'
+            op = left.operator("bbutils.tabhub_fold", text=cat, emboss=False,
+                               icon='DOWNARROW_HLT' if is_open else 'RIGHTARROW')
+            op.key = key
+            info = head.row()
+            info.alignment = 'RIGHT'
+            info.active = picked > 0
+            info.label(text=f"{picked} in hub" if picked else
+                       (next(iter(addons)) if len(addons) == 1 else f"{len(addons)} add-ons"))
+            if not is_open:
+                continue
+
+            body = col.box().column(align=True)
 
             def walk(c, depth):
-                self._row(box, c, hubbed, depth)
+                self._row(body, c, hubbed, depth, len(addons) > 1)
                 for k in children.get(_hub_pid(c), []):
                     walk(k, depth + 1)
             for c in tops:
                 walk(c, 0)
+            col.separator(factor=0.4)
+        if not shown:
+            _draw_hint(layout, "Nothing matches the search." if needle
+                       else "This editor has no add-on tabs.")
+
+    def _row(self, layout, cls, hubbed, depth, show_addon):
+        pid = _hub_pid(cls)
+        on = pid in hubbed
+        row = layout.row(align=True)
+        if depth:
+            row.separator(factor=2.0 * depth)
+        op = row.operator("bbutils.tabhub_toggle", text="", emboss=False,
+                          icon='CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT')
+        op.panel_id = pid
+        txt = row.row()
+        txt.active = on or depth == 0
+        txt.label(text=_hub_label(cls))
+        if show_addon:
+            sub = row.row()
+            sub.alignment = 'RIGHT'
+            sub.active = False
+            sub.label(text=_hub_addon_name(cls))
 
 
 def _draw_ezphyzi(layout, context):
@@ -3490,27 +3585,27 @@ def _draw_ezphyzi(layout, context):
     row.scale_y = 1.4
     row.operator("bbutils.ezphyzi_from_active",
                  text="EzPhyzi It", icon='FORCE_FORCE')
-    row = box.row(align=True)
-    row.scale_y = 1.2
-    row.prop(mp, "release_frame", text="Start Frame")
-    row.operator("bbutils.ezphyzi_release_here", text="", icon='TIME')
-    row = box.row(align=True)
-    row.prop(mp, "end_frame", text="End Frame")
-    row.operator("bbutils.ezphyzi_end_here", text="", icon='TIME')
-    _draw_hint(box, "Pose mode: select the bone to throw,",
+    _draw_hint(box, "Pose mode: select the bone,",
                     "go to the release frame, click")
 
+    frames = box.column(align=True)
+    frames.scale_y = 1.2
+    for prop, op, label in (("release_frame", "bbutils.ezphyzi_release_here", "Start Frame"),
+                            ("end_frame", "bbutils.ezphyzi_end_here", "End Frame")):
+        row = frames.row(align=True)
+        row.prop(mp, prop, text=label)
+        row.operator(op, text="", icon='TIME')
+
     col = box.column(align=True)
-    col.prop(mp, "armature")
+    col.prop(mp, "armature", text="Rig")
     if mp.armature and mp.armature.type == 'ARMATURE':
-        col.prop_search(mp, "bone_name", mp.armature.pose, "bones")
+        col.prop_search(mp, "bone_name", mp.armature.pose, "bones", text="Bone")
 
     row = box.row(align=True)
     row.operator("bbutils.ezphyzi_toggle_preview",
                  text="Hide Preview" if previewing else "Show Preview",
                  icon='HIDE_OFF' if previewing else 'HIDE_ON', depress=previewing)
     row.operator("bbutils.ezphyzi_resample", text="", icon='FILE_REFRESH')
-
 
     # collapsible sections (Blender 4.1+ layout panels; open/closed state is
     # remembered per editor)
@@ -3551,8 +3646,10 @@ def _draw_ezphyzi(layout, context):
         body.prop(mp, "extra_impulse")
         body.prop(mp, "extra_spin")
 
-    box.prop(mp, "key_constraints_off")
-    box.prop(mp, "key_type")
+    box.separator(factor=0.5)
+    col = box.column()
+    col.prop(mp, "key_type")
+    col.prop(mp, "key_constraints_off")
     row = box.row()
     row.scale_y = 1.4
     row.operator("bbutils.ezphyzi_bake", text="Bake EzPhyzi", icon='CHECKMARK')
@@ -3740,6 +3837,7 @@ classes = [
     BBUTILS_OT_tabhub_move,
     BBUTILS_OT_tab_order_move,
     BBUTILS_OT_tab_order_reset,
+    BBUTILS_OT_tabhub_fold,
     BBUTILS_OT_tabhub_manager,
     BBUtilsBatchRenderProperties,
     BBUtilsControllerProperties,
