@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.0
+- EzPhyzi: **End Frame** replaces the "Frames" count. It sits right under Start Frame with
+  its own "current frame" button, and moves along when the start frame passes it.
+
 ## 1.26.1
 - EzPhyzi: the preview now also finds the mesh when it hangs on a different bone that
   follows the picked one (bone children, Copy Transforms, or a lone Child Of), e.g. a

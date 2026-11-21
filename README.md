@@ -61,7 +61,7 @@ duplicate mesh → add rigid body → bake the scene → parent to the bone → 
 With EzPhyzi it takes three:
 
 1. In **Pose Mode** select the magazine bone, go to the frame where it leaves the hand and click **EzPhyzi It**.
-2. Adjust **Start Frame** (right under the button) and the sliders while you watch the green trajectory. Every change updates the preview at once.
+2. Adjust **Start Frame** and **End Frame** (right under the button) and the sliders while you watch the green trajectory. Every change updates the preview at once.
 3. Click **Bake EzPhyzi**.
 
 ### How it works
@@ -95,7 +95,7 @@ A thrown magazine flies freely, so EzPhyzi integrates the flight itself instead 
 | Setting | Meaning |
 |---|---|
 | Start Frame | Release frame, right under **EzPhyzi It**. The 🕒 button sets it to the current frame. Changing it refreshes the preview at once. |
-| Frames | How many frames to simulate |
+| End Frame | Last frame of the throw, right under Start Frame, with the same 🕒 button. It moves along when the start frame passes it. |
 | Pivot (bone local) | Spin centre as an XYZ offset from the bone head in the bone's local space. It snaps to the mesh centre whenever you pick a bone, and the ⌖ button snaps it back. |
 | Gravity | Multiplier of the scene gravity |
 | Inherit Velocity / Spin | How much of the animated hand motion the object keeps |

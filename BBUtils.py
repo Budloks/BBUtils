@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 26, 1),
+    "version": (1, 27, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -450,7 +450,10 @@ def _ezphyzi_on_bone(self, context):
 
 def _ezphyzi_on_release(self, context):
     """Editing the start frame always shows the result: refresh the preview,
-    or switch it on if it was hidden."""
+    or switch it on if it was hidden. The end frame is pushed along when
+    the start passes it."""
+    if self.end_frame <= self.release_frame:
+        self.end_frame = self.release_frame + 30
     if _ez_state["handle"] is not None:
         _ez_refresh(context, resample=True)
     elif _ez_valid(self):
@@ -480,9 +483,11 @@ class BBUtilsEzPhyziProperties(PropertyGroup):
                     "updates as you change it",
         default=1, update=_ezphyzi_on_release,
     )
-    duration: IntProperty(
-        name="Duration", description="How many frames to simulate after release",
-        default=30, min=1, max=1000, update=_ezphyzi_on_sim,
+    end_frame: IntProperty(
+        name="End Frame",
+        description="Last frame of the throw - the simulation runs from the "
+                    "start frame up to this one",
+        default=31, update=_ezphyzi_on_sim,
     )
     gravity_scale: FloatProperty(
         name="Gravity", description="Multiplier of the scene gravity",
@@ -2102,7 +2107,7 @@ def _ez_simulate(init, p, scene):
     ang_keep = max(0.0, 1.0 - p.angular_damping * dt)
 
     frames = [(pos.copy(), rot.copy())]
-    for _ in range(p.duration):
+    for _ in range(max(1, p.end_frame - p.release_frame)):
         for _ in range(_EZ_SUBSTEPS):
             vel = (vel + g * dt) * lin_keep          # semi-implicit Euler
             omega = omega * ang_keep
@@ -2472,6 +2477,21 @@ class BBUTILS_OT_ezphyzi_release_here(Operator):
 
     def execute(self, context):
         context.scene.bbutils_ezphyzi_props.release_frame = context.scene.frame_current
+        return {'FINISHED'}
+
+
+class BBUTILS_OT_ezphyzi_end_here(Operator):
+    """Set the end frame to the current frame"""
+    bl_idname = "bbutils.ezphyzi_end_here"
+    bl_label = "End On Current Frame"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        p = context.scene.bbutils_ezphyzi_props
+        if context.scene.frame_current <= p.release_frame:
+            self.report({'WARNING'}, "End frame must be after the start frame")
+            return {'CANCELLED'}
+        p.end_frame = context.scene.frame_current
         return {'FINISHED'}
 
 
@@ -3474,6 +3494,9 @@ def _draw_ezphyzi(layout, context):
     row.scale_y = 1.2
     row.prop(mp, "release_frame", text="Start Frame")
     row.operator("bbutils.ezphyzi_release_here", text="", icon='TIME')
+    row = box.row(align=True)
+    row.prop(mp, "end_frame", text="End Frame")
+    row.operator("bbutils.ezphyzi_end_here", text="", icon='TIME')
     _draw_hint(box, "Pose mode: select the bone to throw,",
                     "go to the release frame, click")
 
@@ -3481,7 +3504,6 @@ def _draw_ezphyzi(layout, context):
     col.prop(mp, "armature")
     if mp.armature and mp.armature.type == 'ARMATURE':
         col.prop_search(mp, "bone_name", mp.armature.pose, "bones")
-    col.prop(mp, "duration", text="Frames")
 
     row = box.row(align=True)
     row.operator("bbutils.ezphyzi_toggle_preview",
@@ -3740,6 +3762,7 @@ classes = [
     BBUTILS_OT_ezphyzi_toggle_preview,
     BBUTILS_OT_ezphyzi_center_pivot,
     BBUTILS_OT_ezphyzi_release_here,
+    BBUTILS_OT_ezphyzi_end_here,
     BBUTILS_OT_ezphyzi_resample,
     BBUTILS_OT_ezphyzi_bake,
     BBUTILS_OT_flip_fcurve,
