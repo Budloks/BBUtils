@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 28, 0),
+    "version": (1, 29, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -2722,6 +2722,145 @@ class BBUTILS_OT_ezphyzi_bake(Operator):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  TRANSFORM CLIPBOARD - copy / paste world and relative transforms
+# ─────────────────────────────────────────────────────────────────────────────
+
+_xform_clip = {"world": None, "relative": None}
+
+
+def _xf_world(t):
+    """World matrix of a pose bone or object, after constraints."""
+    if isinstance(t, bpy.types.PoseBone):
+        return t.id_data.matrix_world @ t.matrix
+    return t.matrix_world.copy()
+
+
+def _xf_assign(t, world):
+    if isinstance(t, bpy.types.PoseBone):
+        t.matrix = t.id_data.matrix_world.inverted() @ world
+    else:
+        t.matrix_world = world
+
+
+def _xf_set_world(context, t, world):
+    """Put `t` at `world` even when constraints (Child Of, Copy Transforms
+    with partial influence...) move it: assign, measure where it ended up,
+    take the constraint's offset back out and try again."""
+    want = world.copy()
+    for _ in range(4):
+        _xf_assign(t, want)
+        context.view_layer.update()
+        got = _xf_world(t)
+        if all(abs(a - b) < 1e-5 for ra, rb in zip(got, world) for a, b in zip(ra, rb)):
+            break
+        want = (got @ want.inverted()).inverted() @ world
+
+
+def _xf_autokey(context, t):
+    ts = context.scene.tool_settings
+    if not ts.use_keyframe_insert_auto:
+        return
+    rot = {'QUATERNION': "rotation_quaternion",
+           'AXIS_ANGLE': "rotation_axis_angle"}.get(t.rotation_mode, "rotation_euler")
+    for path in ("location", rot, "scale"):
+        try:
+            t.keyframe_insert(path, keytype=ts.keyframe_type)
+        except Exception:
+            pass
+
+
+def _xf_active(context):
+    """Active pose bone in Pose Mode, otherwise the active object."""
+    obj = context.active_object
+    if obj is None:
+        return None
+    if obj.mode == 'POSE':
+        return context.active_pose_bone
+    return obj
+
+
+def _xf_pair(context):
+    """(active, other) for the relative tools: exactly two pose bones in
+    Pose Mode, or exactly two objects in Object Mode."""
+    obj = context.active_object
+    if obj is None:
+        return None
+    if obj.mode == 'POSE':
+        sel, act = list(context.selected_pose_bones or []), context.active_pose_bone
+    else:
+        sel, act = list(context.selected_objects), obj
+    if len(sel) != 2 or act not in sel:
+        return None
+    return act, next(x for x in sel if x != act)
+
+
+class BBUTILS_OT_copy_world_transform(Operator):
+    """Copy the world-space transform of the active bone (Pose Mode) or object"""
+    bl_idname = "bbutils.copy_world_transform"
+    bl_label = "Copy World Transform"
+
+    @classmethod
+    def poll(cls, context):
+        return _xf_active(context) is not None
+
+    def execute(self, context):
+        _xform_clip["world"] = _xf_world(_xf_active(context)).copy()
+        return {'FINISHED'}
+
+
+class BBUTILS_OT_paste_world_transform(Operator):
+    """Move the active bone or object to the copied world-space transform
+    (constraints are taken into account; keys it when Auto Keying is on)"""
+    bl_idname = "bbutils.paste_world_transform"
+    bl_label = "Paste World Transform"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _xform_clip["world"] is not None and _xf_active(context) is not None
+
+    def execute(self, context):
+        t = _xf_active(context)
+        _xf_set_world(context, t, _xform_clip["world"])
+        _xf_autokey(context, t)
+        return {'FINISHED'}
+
+
+class BBUTILS_OT_copy_relative_transform(Operator):
+    """Copy where the active bone / object sits relative to the other selected
+    one. Select exactly two (pose bones or objects)"""
+    bl_idname = "bbutils.copy_relative_transform"
+    bl_label = "Copy Relative Transform"
+
+    @classmethod
+    def poll(cls, context):
+        return _xf_pair(context) is not None
+
+    def execute(self, context):
+        act, other = _xf_pair(context)
+        _xform_clip["relative"] = _xf_world(other).inverted() @ _xf_world(act)
+        return {'FINISHED'}
+
+
+class BBUTILS_OT_paste_relative_transform(Operator):
+    """Put the active bone / object back at the copied offset from the other
+    selected one (e.g. keep a hand on the gun on another frame)"""
+    bl_idname = "bbutils.paste_relative_transform"
+    bl_label = "Paste Relative Transform"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _xform_clip["relative"] is not None and _xf_pair(context) is not None
+
+    def execute(self, context):
+        act, other = _xf_pair(context)
+        _xf_set_world(context, act, _xf_world(other) @ _xform_clip["relative"])
+        _xf_autokey(context, act)
+        return {'FINISHED'}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  SECTION 4 — F-CURVE TOOLS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3874,6 +4013,26 @@ def _sec_graph_animation(layout, context):
     col.operator("bbutils.key_constraint_influences", text="Key Constraint Influences", icon='CONSTRAINT')
 
 
+def _sec_transform(layout, context):
+    col = layout.column(align=True)
+    row = col.row(align=True)
+    row.operator("bbutils.copy_world_transform", text="Copy World", icon='WORLD')
+    row.operator("bbutils.paste_world_transform", text="Paste", icon='PASTEDOWN')
+    row = col.row(align=True)
+    row.operator("bbutils.copy_relative_transform", text="Copy Relative", icon='GROUP_BONE')
+    row.operator("bbutils.paste_relative_transform", text="Paste", icon='PASTEDOWN')
+    _draw_hint(layout, "Relative: select 2 bones or objects,",
+                       "the active one is moved")
+
+
+def _sec_scene(layout, context):
+    scene = context.scene
+    row = layout.row(align=True)
+    row.prop(scene, "use_audio", text="Mute Audio", toggle=True,
+             icon='MUTE_IPO_ON' if scene.use_audio else 'MUTE_IPO_OFF')
+    row.prop(scene, "use_audio_scrub", text="Scrubbing", toggle=True)
+
+
 def _sec_nla(layout, context):
     row = layout.row(align=True)
     row.operator("bbutils.stash_all_actions",     text="Stash All",  icon='NLA')
@@ -3938,9 +4097,11 @@ _SECTIONS = [
         ("constraints", "Constraints & Bones", 'CONSTRAINT_BONE',  _sec_constraints,   False),
         ("shapes",      "Bone Shapes & Locks", 'MESH_DATA',        _sec_shapes,        False),
         ("animation",   "Animation",           'ANIM',             _sec_animation,     False),
+        ("transform",   "Transform Clipboard", 'ORIENTATION_GLOBAL', _sec_transform,   False),
         ("ezphyzi",     "EzPhyzi",             'PHYSICS',          None,               False),
         ("nla",         "NLA Management",      'NLA',              _sec_nla,           False),
         ("fcurves",     "F-Curve Tools",       'FCURVE',           _sec_fcurves,       False),
+        ("scene",       "Audio",               'SOUND',            _sec_scene,         False),
         ("render",      "Batch Render",        'RENDER_ANIMATION', _sec_batch_render,  True),
     ]),
     (BBUTILS_PT_dopesheet_panel, "dope", [
@@ -3948,6 +4109,7 @@ _SECTIONS = [
         ("baking",      "Baking",              'RENDER_ANIMATION', _sec_baking,        False),
         ("ezphyzi",     "EzPhyzi",             'PHYSICS',          None,               False),
         ("nla",         "NLA Management",      'NLA',              _sec_nla,           False),
+        ("scene",       "Audio",               'SOUND',            _sec_scene,         False),
     ]),
     (BBUTILS_PT_graph_editor_panel, "graph", [
         ("fcurves",     "F-Curve Tools",       'FCURVE',           _sec_fcurves,       False),
@@ -4022,6 +4184,10 @@ classes = [
     BBUTILS_OT_ezphyzi_resample,
     BBUTILS_OT_ezphyzi_bake,
     BBUTILS_OT_flip_fcurve,
+    BBUTILS_OT_copy_world_transform,
+    BBUTILS_OT_paste_world_transform,
+    BBUTILS_OT_copy_relative_transform,
+    BBUTILS_OT_paste_relative_transform,
     BBUTILS_OT_batch_viewport_render,
     BBUTILS_PT_viewport_panel,
     BBUTILS_PT_dopesheet_panel,

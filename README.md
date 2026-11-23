@@ -17,6 +17,7 @@ batch-render every action, and stop doing rig chores by hand.
 - [EzPhyzi: throw physics without rigid bodies](#ezphyzi-throw-physics-without-rigid-bodies)
 - [Tab Hub: one tab for all your add-ons](#tab-hub-one-tab-for-all-your-add-ons)
 - [Animation tools](#animation-tools)
+- [Transform Clipboard](#transform-clipboard)
 - [Rig and bone tools](#rig-and-bone-tools)
 - [NLA and F-Curve tools](#nla-and-f-curve-tools)
 - [Batch viewport render](#batch-viewport-render)
@@ -151,6 +152,20 @@ The **Tab Order** page of the same dialog lists every sidebar tab of the chosen 
 | **Key Constraint Influences** | Keys the influence of every constraint on the selected bones at the current frame, optionally in every action of the rig. |
 | **Key Matching Channels** | At the current frame, keys every channel of the active action in all the other actions too. |
 
+## Transform Clipboard
+
+| Tool | What it does |
+|---|---|
+| **Copy World / Paste** | Copies the world transform of the active bone (Pose Mode) or object and pastes it onto the active bone or object, e.g. to match a weapon to a hand on another frame. |
+| **Copy Relative / Paste** | With exactly two bones or two objects selected, copies where the active one sits relative to the other, then puts it back at that offset on any frame. |
+
+Pasting accounts for constraints (Child Of with any influence, Copy Transforms…), so the
+result lands exactly where you copied it. With Auto Keying on, the pasted transform is keyed.
+
+## Audio
+
+**Mute Audio** and **Scrubbing** toggles, in the 3D Viewport and Dope Sheet.
+
 ## Rig and bone tools
 
 | Tool | What it does |
@@ -187,8 +202,8 @@ use tokens that are filled in per video: `{action}` `{rig}` `{index}` `{count}` 
 
 | Editor | Sidebar (N) → BBUtils |
 |---|---|
-| 3D Viewport | Tab Hub · Constraints & Bones · Bone Shapes & Locks · Animation · **EzPhyzi** · NLA · F-Curves · Batch Render |
-| Dope Sheet | Tab Hub · Keyframe Management · Baking · **EzPhyzi** · NLA |
+| 3D Viewport | Tab Hub · Constraints & Bones · Bone Shapes & Locks · Animation · Transform Clipboard · **EzPhyzi** · NLA · F-Curves · Audio · Batch Render |
+| Dope Sheet | Tab Hub · Keyframe Management · Baking · **EzPhyzi** · NLA · Audio |
 | Graph Editor | Tab Hub · F-Curve Tools · Animation Tools |
 
 Every category is its own collapsible sub-panel. Blender remembers what you collapsed, and you can reorder categories by dragging their ⠿ handle.

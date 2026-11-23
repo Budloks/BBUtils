@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.29.0
+- **Transform Clipboard** (3D Viewport): copy the world transform of the active bone or
+  object and paste it onto another, or copy where one bone / object sits relative to
+  another and paste that offset back on any frame. Pasting accounts for constraints
+  (Child Of with any influence, Copy Transforms...) and keys the result when Auto
+  Keying is on.
+- **Audio** section (3D Viewport, Dope Sheet): Mute Audio and Scrubbing toggles.
+
 ## 1.28.0
 - Batch Render keeps the scene's **Metadata burn-in** (Output Properties → Metadata →
   Burn Into Image). The note can use tokens, filled in per video: `{action}` `{rig}`
