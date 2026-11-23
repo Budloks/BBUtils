@@ -1,7 +1,7 @@
 bl_info = {
     "name": "BBUtils",
     "author": "Budloks",
-    "version": (1, 27, 0),
+    "version": (1, 28, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > BBUtils Tab  |  Dope Sheet > Sidebar > BBUtils  |  Graph Editor > Sidebar > BBUtils",
     "description": "Batch viewport rendering, animation tools, EzPhyzi throw physics, armature constraint utilities, and controller bone tools",
@@ -2772,8 +2772,15 @@ class BBUTILS_OT_flip_fcurve(Operator):
 #  SECTION 5 — BATCH VIEWPORT RENDERER
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _KeepMissing(dict):
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
 class BBUTILS_OT_batch_viewport_render(Operator):
-    """Render every action as a separate viewport-shaded MP4 video."""
+    """Render every action as a separate viewport-shaded MP4 video. Metadata
+    burn-in from Output Properties > Metadata is kept; the note can use
+    {action} {rig} {index} {count} {start} {end} {blend}"""
     bl_idname = "bbutils.batch_viewport_render"
     bl_label = "Render All Actions"
     bl_options = {'REGISTER'}
@@ -2837,30 +2844,37 @@ class BBUTILS_OT_batch_viewport_render(Operator):
             'action':     anim.action,
             'slot':       getattr(anim, "action_slot", None),
             'filepath':   render.filepath,
+            'media':      getattr(render.image_settings, "media_type", None),
             'format':     render.image_settings.file_format,
+            'ffmpeg':     {k: getattr(render.ffmpeg, k) for k in (
+                "format", "codec", "constant_rate_factor", "ffmpeg_preset")},
             'res_x':      render.resolution_x,
             'res_y':      render.resolution_y,
             'res_pct':    render.resolution_percentage,
             'camera':     scene.camera,
+            'note':       render.stamp_note_text,
         }
-
-        render.resolution_x          = props.resolution_x
-        render.resolution_y          = props.resolution_y
-        render.resolution_percentage = props.resolution_percentage
-        if props.camera_object:
-            scene.camera = props.camera_object
-
-        render.image_settings.file_format  = 'FFMPEG'
-        render.ffmpeg.format               = 'MPEG4'
-        render.ffmpeg.codec                = 'H264'
-        render.ffmpeg.constant_rate_factor = 'MEDIUM'
-        render.ffmpeg.ffmpeg_preset        = 'GOOD'
+        blend = Path(bpy.data.filepath).stem if bpy.data.filepath else "untitled"
 
         wm = context.window_manager
         wm.progress_begin(0, len(actions))
         rendered = 0
 
         try:
+            render.resolution_x          = props.resolution_x
+            render.resolution_y          = props.resolution_y
+            render.resolution_percentage = props.resolution_percentage
+            if props.camera_object:
+                scene.camera = props.camera_object
+
+            if saved['media'] is not None:       # Blender 5.0+: video is a media type
+                render.image_settings.media_type = 'VIDEO'
+            render.image_settings.file_format  = 'FFMPEG'
+            render.ffmpeg.format               = 'MPEG4'
+            render.ffmpeg.codec                = 'H264'
+            render.ffmpeg.constant_rate_factor = 'MEDIUM'
+            render.ffmpeg.ffmpeg_preset        = 'GOOD'
+
             for i, action in enumerate(actions):
                 wm.progress_update(i)
                 self.report({'INFO'},
@@ -2877,6 +2891,14 @@ class BBUTILS_OT_batch_viewport_render(Operator):
 
                 scene.frame_start = frame_start
                 scene.frame_end   = frame_end
+                if "{" in saved['note']:          # per-action burn-in note
+                    try:
+                        render.stamp_note_text = saved['note'].format_map(_KeepMissing(
+                            action=action.name, rig=armature.name, index=i + 1,
+                            count=len(actions), start=frame_start, end=frame_end,
+                            blend=blend))
+                    except (ValueError, IndexError, AttributeError):
+                        render.stamp_note_text = saved['note']
                 render.filepath   = os.path.join(
                     output_dir, f"{self._sanitize(action.name)}.mp4")
 
@@ -2896,11 +2918,19 @@ class BBUTILS_OT_batch_viewport_render(Operator):
             scene.frame_start              = saved['start']
             scene.frame_end                = saved['end']
             render.filepath                = saved['filepath']
+            if saved['media'] is not None:
+                render.image_settings.media_type = saved['media']
             render.image_settings.file_format = saved['format']
+            for k, v in saved['ffmpeg'].items():
+                try:
+                    setattr(render.ffmpeg, k, v)
+                except Exception:
+                    pass
             render.resolution_x            = saved['res_x']
             render.resolution_y            = saved['res_y']
             render.resolution_percentage   = saved['res_pct']
             scene.camera                   = saved['camera']
+            render.stamp_note_text         = saved['note']
 
         msg = f"Done - rendered {rendered} action(s) to: {output_dir}"
         if no_slot:

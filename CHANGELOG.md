@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.28.0
+- Batch Render keeps the scene's **Metadata burn-in** (Output Properties → Metadata →
+  Burn Into Image). The note can use tokens, filled in per video: `{action}` `{rig}`
+  `{index}` `{count}` `{start}` `{end}` `{blend}`.
+- Fixed Batch Render on Blender 5.x (MP4 output is now picked through the new video
+  media type) and your FFmpeg output settings are restored afterwards.
+
 ## 1.27.0
 - EzPhyzi **Clean Curves** (on by default): the bake keeps only the keys the flight
   needs, as Bezier curves with aligned handles. A plain throw gives 2 location keys per

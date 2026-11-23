@@ -176,6 +176,11 @@ through the camera you pick. It supports a resolution and scale override, a cust
 range and a name filter (render only actions whose name contains some text).
 Your render settings are restored afterwards.
 
+**Burn-in notes and metadata:** turn on **Output Properties → Metadata → Burn Into Image**
+and every video gets the fields you ticked there (frame, date, camera…). The **Note** can
+use tokens that are filled in per video: `{action}` `{rig}` `{index}` `{count}` `{start}`
+`{end}` `{blend}`. For example `{action} ({index}/{count})` writes `reload (3/12)`.
+
 ---
 
 ## Where to find everything
